@@ -1,2 +1,5 @@
 torch>=2.0
 numpy>=1.23
+torchvision>=0.15
+matplotlib>=3.7
+scikit-learn>=1.3

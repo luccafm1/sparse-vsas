@@ -90,6 +90,11 @@ python image_classification_test.py
 
 Resultado típico: ~93% de acurácia no teste depois de 3 épocas curtas — confirma que o gargalo VSA esparso (bind/bundle + VQ discreto) consegue aprender uma tarefa de classificação de imagens comum, não só as tarefas de vídeo/física do TCC.
 
+Além do log de treino e da acurácia, o script imprime um `classification_report` (precisão/recall/F1 por classe) e salva dois PNGs:
+
+- `confusion_matrix.png` — matriz de confusão do conjunto de teste.
+- `sample_predictions.png` — grade de 16 imagens de teste com a predição e o rótulo verdadeiro (título verde se acertou, vermelho se errou).
+
 ## Requisitos
 
 - Python 3.10+ (usa `X | Y` em type hints e `from __future__ import annotations`)
