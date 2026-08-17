@@ -60,6 +60,36 @@ physics = load_checkpoint("movi_physics_sj_seed11.pkl")
 decoder = load_checkpoint("movi_decoder_sj_seed11.pkl")
 ```
 
+## Como testar
+
+O repositório não vem com dados reais nem script de treino — só os checkpoints. Para verificar que tudo está funcionando (dependências instaladas, checkpoints carregam, forward pass roda, Glue funciona), rode o smoke test com dados aleatórios:
+
+```bash
+python smoke_test.py
+```
+
+Saída esperada (aproximada):
+
+```
+[vision]  program=(2, 64) codes=(2, 4) future_rgb=(2, 4, 3, 32, 32)
+[physics] program=(2, 64) codes=(2, 4) future_state=(2, 12, 10, 6)
+[decoder] outcome_pred=(2, 6) codes=(2, 4)
+[glue]    compatible=True group_map=(...) resolved_slots=(0, 1, 2, 3) objective=... margin=...
+OK: all checkpoints loaded and ran successfully.
+```
+
+Como os dados são aleatórios (sem correlação real entre grupos), o `objective`/`margin` do Glue tendem a ficar perto de zero — isso é esperado e só significa que não há estrutura estatística real para alinhar. Para um teste de Glue significativo, é preciso gerar códigos a partir de dados reais do MOVi (mesmas cenas passadas pelos dois modelos), não deste script de sanity check.
+
+### Teste de classificação real (MNIST)
+
+`SparseVQCore` (o núcleo em [base.py](base.py)) não depende de vídeo nem de física — ele só recebe um vetor de embedding qualquer. [image_classification_test.py](image_classification_test.py) prova isso construindo um classificador de imagens do zero (CNN pequena → `SparseVQCore` → cabeça linear), sem reaproveitar nenhuma peça de [composed_nets.py](composed_nets.py), e treina/avalia em MNIST (baixado automaticamente via `torchvision` na primeira execução):
+
+```bash
+python image_classification_test.py
+```
+
+Resultado típico: ~93% de acurácia no teste depois de 3 épocas curtas — confirma que o gargalo VSA esparso (bind/bundle + VQ discreto) consegue aprender uma tarefa de classificação de imagens comum, não só as tarefas de vídeo/física do TCC.
+
 ## Requisitos
 
 - Python 3.10+ (usa `X | Y` em type hints e `from __future__ import annotations`)
