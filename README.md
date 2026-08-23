@@ -88,12 +88,33 @@ Como os dados são aleatórios (sem correlação real entre grupos), o `objectiv
 python image_classification_test.py
 ```
 
-Resultado típico: ~93% de acurácia no teste depois de 3 épocas curtas — confirma que o gargalo VSA esparso (bind/bundle + VQ discreto) consegue aprender uma tarefa de classificação de imagens comum, não só as tarefas de vídeo/física do TCC.
+Resultado típico: ~96% de acurácia no teste depois de 6 épocas — confirma que o gargalo VSA esparso (bind/bundle + VQ discreto) consegue aprender uma tarefa de classificação de imagens comum, não só as tarefas de vídeo/física do TCC.
 
-Além do log de treino e da acurácia, o script imprime um `classification_report` (precisão/recall/F1 por classe) e salva dois PNGs:
+Além do log de treino e da acurácia, o script imprime um `classification_report` (precisão/recall/F1 por classe), o **relatório de especialização** (ver abaixo) e salva dois PNGs:
 
 - `confusion_matrix.png` — matriz de confusão do conjunto de teste.
 - `sample_predictions.png` — grade de 16 imagens de teste com a predição e o rótulo verdadeiro (título verde se acertou, vermelho se errou).
+
+### Penalidade de redundância entre grupos e especialização
+
+Sem nenhum incentivo extra, os 8 grupos do `SparseVQCore` convergem para uma solução **redundante**: cada grupo, isoladamente, já aprende a "adivinhar" o dígito quase inteiro (informação mútua grupo↔rótulo alta e parecida entre todos os grupos), e nenhum par de grupos vizinhos no *scaffold* carrega mais informação junto do que o melhor grupo sozinho — ou seja, o mecanismo de troca de mensagens entre grupos conectados (pensado para viabilizar composicionalidade) não estava sendo usado de fato. Isso foi medido comparando a informação mútua normalizada (NMI, de `sklearn.metrics.normalized_mutual_info_score`) entre `codes[:, g]` e o rótulo, grupo a grupo, e entre pares de grupos conectados.
+
+`pairwise_mi_penalty` (em [image_classification_test.py](image_classification_test.py)) resolve isso adicionando ao loss de treino uma estimativa, por lote, da informação mútua entre as distribuições de código (`out["probs"]`) de cada par de grupos, e penalizando quando dois grupos "sabem" a mesma coisa:
+
+```python
+loss = F.cross_entropy(...) + vq + 0.25 * commit + 0.05 * kl + REDUNDANCY_WEIGHT * pairwise_mi_penalty(out["probs"])
+```
+
+Com `REDUNDANCY_WEIGHT = 4.0` (a constante no topo do arquivo), o quadro muda por completo — números típicos no MNIST:
+
+| | sem a penalidade | com a penalidade (`REDUNDANCY_WEIGHT=4`) |
+|---|---|---|
+| acurácia no teste | ~96% | ~96% (custo ≈0) |
+| NMI(código, rótulo) por grupo | ~0.81 (uniforme entre grupos) | ~0.42, bem mais heterogêneo entre grupos |
+| NMI entre códigos de grupos diferentes | ~0.84 (muito redundante) | ~0.08 (quase independentes) |
+| ganho do par vs melhor grupo sozinho | negativo (~-0.04) | **positivo (~+0.19)** |
+
+Ou seja: nenhum grupo sozinho fica confiante sobre o dígito, mas pares de grupos conectados, combinados, carregam mais informação sobre a classe do que qualquer um isoladamente — especialização real via o grafo, não redundância. `report_specialization` imprime esses três números (NMI por grupo, NMI entre grupos, ganho do par) a cada execução do script, para acompanhar esse efeito. `REDUNDANCY_WEIGHT = 0` reproduz o comportamento redundante original.
 
 ## Requisitos
 

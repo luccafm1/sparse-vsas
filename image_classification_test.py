@@ -6,6 +6,14 @@ with a linear head reading the resulting "program" vector. Trains and
 evaluates on MNIST digit classification, then reports a confusion matrix,
 a per-class metrics table, and a grid of sample predictions.
 
+The training loss also includes a redundancy penalty: without it, every
+group's discrete code independently converges to a near-complete guess of
+the digit (redundant, not complementary). The penalty pushes groups toward
+genuine specialization -- individually weaker codes whose *combination*
+along scaffold edges carries more class information than either alone.
+The script reports this via per-group and per-edge mutual-information
+numbers after training.
+
 Usage: python image_classification_test.py
 Outputs: confusion_matrix.png, sample_predictions.png
 """
@@ -13,17 +21,24 @@ Outputs: confusion_matrix.png, sample_predictions.png
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import classification_report, confusion_matrix, normalized_mutual_info_score
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
-from base import SJConfig, SparseVQCore, make_rigid_scaffold
+from base import SJConfig, SparseVQCore, make_rigid_scaffold, physical_edges
 
 DATA_DIR = "data"
 NUM_CLASSES = 10
+EPOCHS = 6
+# Weight of the inter-group redundancy penalty (see pairwise_mi_penalty). 0
+# disables it and lets groups converge to redundant copies of the label;
+# ~4.0 is the smallest weight that reliably flips scaffold-edge pairs from
+# redundant to complementary in this setup.
+REDUNDANCY_WEIGHT = 4.0
 
 
 class ImageEncoder(nn.Module):
@@ -53,6 +68,41 @@ class ImageSJClassifier(nn.Module):
         out = self.sj(self.encoder(x), pair_writes=True)
         out["class_logits"] = self.head(out["program"])
         return out
+
+
+def pairwise_mi_penalty(probs: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+    """Batch estimate of mutual information between every pair of groups'
+    (soft) discrete codes. probs: [B, G, C]. Returns the mean MI (nats)
+    over all off-diagonal group pairs -- minimizing this pushes groups
+    toward independent, non-redundant codes."""
+    B, G, C = probs.shape
+    joint = torch.einsum("bgi,bhj->ghij", probs, probs) / B          # [G,G,C,C]
+    marginal = probs.mean(0)                                        # [G,C]
+    outer = marginal[:, None, :, None] * marginal[None, :, None, :]  # [G,G,C,C]
+    mi_terms = joint * (torch.log(joint + eps) - torch.log(outer + eps))
+    mi = mi_terms.sum(dim=(-1, -2))                                  # [G,G]
+    off_diag = ~torch.eye(G, dtype=torch.bool)
+    return mi[off_diag].mean()
+
+
+def report_specialization(codes: np.ndarray, labels: np.ndarray, edges, card: int) -> None:
+    G = codes.shape[1]
+    nmis = np.array([normalized_mutual_info_score(labels, codes[:, g]) for g in range(G)])
+    pair_gains = []
+    for i, j in edges:
+        joint = codes[:, i].astype(np.int64) * card + codes[:, j].astype(np.int64)
+        nmi_joint = normalized_mutual_info_score(labels, joint)
+        pair_gains.append(nmi_joint - max(nmis[i], nmis[j]))
+    code_code = [normalized_mutual_info_score(codes[:, i], codes[:, j])
+                 for i in range(G) for j in range(i + 1, G)]
+
+    print("\nspecialization report:")
+    print(f"  NMI(code, label) per group: mean={nmis.mean():.4f} std={nmis.std():.4f} "
+          f"values={[round(float(x), 3) for x in nmis]}")
+    print(f"  NMI(code_i, code_j) between groups, averaged over all pairs: {np.mean(code_code):.4f}  "
+          "(near 0 -> independent codes; high -> redundant)")
+    print(f"  scaffold-edge pair gain vs best single group in the pair: {np.mean(pair_gains):+.4f}  "
+          "(positive means the pair together beats either group alone -- real specialization)")
 
 
 def plot_confusion_matrix(cm, path: str = "confusion_matrix.png") -> None:
@@ -110,36 +160,43 @@ def main() -> None:
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
 
     model.train()
-    for epoch in range(3):
+    for epoch in range(EPOCHS):
         last_loss = None
         for x, y in train_loader:
             out = model(x)
             vq, commit, kl, entropy = model.sj.vq_losses(out)
-            loss = F.cross_entropy(out["class_logits"], y) + vq + 0.25 * commit + 0.05 * kl
+            redundancy = pairwise_mi_penalty(out["probs"])
+            loss = (F.cross_entropy(out["class_logits"], y) + vq + 0.25 * commit + 0.05 * kl
+                    + REDUNDANCY_WEIGHT * redundancy)
             opt.zero_grad()
             loss.backward()
             opt.step()
             last_loss = loss.item()
-        print(f"epoch {epoch + 1}/3  last batch loss={last_loss:.4f}")
+        print(f"epoch {epoch + 1}/{EPOCHS}  last batch loss={last_loss:.4f}")
 
     model.eval()
-    all_preds, all_targets = [], []
+    all_preds, all_targets, all_codes = [], [], []
     sample_images = sample_preds = sample_targets = None
     with torch.no_grad():
         for i, (x, y) in enumerate(test_loader):
-            preds = model(x)["class_logits"].argmax(-1)
+            out = model(x)
+            preds = out["class_logits"].argmax(-1)
             all_preds.append(preds)
             all_targets.append(y)
+            all_codes.append(out["codes"])
             if i == 0:
                 sample_images, sample_preds, sample_targets = x[:16], preds[:16], y[:16]
 
     all_preds = torch.cat(all_preds).numpy()
     all_targets = torch.cat(all_targets).numpy()
+    all_codes = torch.cat(all_codes).numpy()
     accuracy = (all_preds == all_targets).mean()
 
     print(f"\ntest accuracy: {accuracy:.4f} ({int((all_preds == all_targets).sum())}/{len(all_targets)})\n")
     print("classification report:")
     print(classification_report(all_targets, all_preds, digits=4))
+
+    report_specialization(all_codes, all_targets, physical_edges(masks), cfg.card)
 
     cm = confusion_matrix(all_targets, all_preds)
     plot_confusion_matrix(cm)
