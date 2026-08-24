@@ -10,6 +10,9 @@ A ideia central: em vez de um embedding denso e monolítico, cada rede codifica 
 |---|---|
 | [base.py](base.py) | Arquitetura base: `SJConfig`, construção do *scaffold* esparso, e o módulo central `SparseVQCore` |
 | [composed_nets.py](composed_nets.py) | Redes especialistas (visão, física, decodificador), o mecanismo de *Glue* entre arquiteturas, e utilitários de checkpoint |
+| [sj_image_classifier.py](sj_image_classifier.py) | Modelo/treino/relatórios compartilhados pelos testes de classificação de imagem (MNIST e FashionMNIST) |
+| [image_classification_test.py](image_classification_test.py) | Teste de classificação em MNIST — saídas em `results/mnist/` |
+| [fashion_classification_test.py](fashion_classification_test.py) | Teste de classificação em FashionMNIST — saídas em `results/fashion_mnist/` |
 | `movi_vision_sj_seed11.pkl` | Checkpoint treinado do especialista de visão |
 | `movi_physics_sj_seed11.pkl` | Checkpoint treinado do especialista de física |
 | `movi_decoder_sj_seed11.pkl` | Checkpoint treinado do decodificador de desfecho |
@@ -80,41 +83,43 @@ OK: all checkpoints loaded and ran successfully.
 
 Como os dados são aleatórios (sem correlação real entre grupos), o `objective`/`margin` do Glue tendem a ficar perto de zero — isso é esperado e só significa que não há estrutura estatística real para alinhar. Para um teste de Glue significativo, é preciso gerar códigos a partir de dados reais do MOVi (mesmas cenas passadas pelos dois modelos), não deste script de sanity check.
 
-### Teste de classificação real (MNIST)
+### Teste de classificação real (MNIST e FashionMNIST)
 
-`SparseVQCore` (o núcleo em [base.py](base.py)) não depende de vídeo nem de física — ele só recebe um vetor de embedding qualquer. [image_classification_test.py](image_classification_test.py) prova isso construindo um classificador de imagens do zero (CNN pequena → `SparseVQCore` → cabeça linear), sem reaproveitar nenhuma peça de [composed_nets.py](composed_nets.py), e treina/avalia em MNIST (baixado automaticamente via `torchvision` na primeira execução):
+`SparseVQCore` (o núcleo em [base.py](base.py)) não depende de vídeo nem de física — ele só recebe um vetor de embedding qualquer. [sj_image_classifier.py](sj_image_classifier.py) prova isso construindo um classificador de imagens do zero (CNN pequena → `SparseVQCore` → cabeça linear), sem reaproveitar nenhuma peça de [composed_nets.py](composed_nets.py). Dois scripts finos rodam esse mesmo modelo em datasets diferentes:
 
 ```bash
-python image_classification_test.py
+python image_classification_test.py    # MNIST — saídas em results/mnist/
+python fashion_classification_test.py  # FashionMNIST — saídas em results/fashion_mnist/
 ```
 
-Resultado típico: ~96% de acurácia no teste depois de 6 épocas — confirma que o gargalo VSA esparso (bind/bundle + VQ discreto) consegue aprender uma tarefa de classificação de imagens comum, não só as tarefas de vídeo/física do TCC.
+Resultados típicos depois de 6 épocas: ~96% de acurácia no MNIST, ~85% no FashionMNIST (mais difícil — mais variação visual dentro de cada classe) — confirma que o gargalo VSA esparso (bind/bundle + VQ discreto) consegue aprender uma tarefa de classificação de imagens comum, não só as tarefas de vídeo/física do TCC.
 
-Além do log de treino e da acurácia, o script imprime um `classification_report` (precisão/recall/F1 por classe), o **relatório de especialização** (ver abaixo) e salva dois PNGs:
+Cada execução salva, na pasta `results/<dataset>/` correspondente:
 
-- `confusion_matrix.png` — matriz de confusão do conjunto de teste.
+- `confusion_matrix.png` — matriz de confusão do conjunto de teste, com nome das classes.
 - `sample_predictions.png` — grade de 16 imagens de teste com a predição e o rótulo verdadeiro (título verde se acertou, vermelho se errou).
+- `metrics.txt` — log de treino, acurácia, `classification_report` (precisão/recall/F1 por classe) e o **relatório de especialização** (ver abaixo), tudo em texto.
 
 ### Penalidade de redundância entre grupos e especialização
 
 Sem nenhum incentivo extra, os 8 grupos do `SparseVQCore` convergem para uma solução **redundante**: cada grupo, isoladamente, já aprende a "adivinhar" o dígito quase inteiro (informação mútua grupo↔rótulo alta e parecida entre todos os grupos), e nenhum par de grupos vizinhos no *scaffold* carrega mais informação junto do que o melhor grupo sozinho — ou seja, o mecanismo de troca de mensagens entre grupos conectados (pensado para viabilizar composicionalidade) não estava sendo usado de fato. Isso foi medido comparando a informação mútua normalizada (NMI, de `sklearn.metrics.normalized_mutual_info_score`) entre `codes[:, g]` e o rótulo, grupo a grupo, e entre pares de grupos conectados.
 
-`pairwise_mi_penalty` (em [image_classification_test.py](image_classification_test.py)) resolve isso adicionando ao loss de treino uma estimativa, por lote, da informação mútua entre as distribuições de código (`out["probs"]`) de cada par de grupos, e penalizando quando dois grupos "sabem" a mesma coisa:
+`pairwise_mi_penalty` (em [sj_image_classifier.py](sj_image_classifier.py)) resolve isso adicionando ao loss de treino uma estimativa, por lote, da informação mútua entre as distribuições de código (`out["probs"]`) de cada par de grupos, e penalizando quando dois grupos "sabem" a mesma coisa:
 
 ```python
 loss = F.cross_entropy(...) + vq + 0.25 * commit + 0.05 * kl + REDUNDANCY_WEIGHT * pairwise_mi_penalty(out["probs"])
 ```
 
-Com `REDUNDANCY_WEIGHT = 4.0` (a constante no topo do arquivo), o quadro muda por completo — números típicos no MNIST:
+Com `REDUNDANCY_WEIGHT = 4.0` (a constante no topo do arquivo), o quadro muda por completo:
 
-| | sem a penalidade | com a penalidade (`REDUNDANCY_WEIGHT=4`) |
-|---|---|---|
-| acurácia no teste | ~96% | ~96% (custo ≈0) |
-| NMI(código, rótulo) por grupo | ~0.81 (uniforme entre grupos) | ~0.42, bem mais heterogêneo entre grupos |
-| NMI entre códigos de grupos diferentes | ~0.84 (muito redundante) | ~0.08 (quase independentes) |
-| ganho do par vs melhor grupo sozinho | negativo (~-0.04) | **positivo (~+0.19)** |
+| | MNIST sem penalidade | MNIST com penalidade | FashionMNIST sem penalidade | FashionMNIST com penalidade |
+|---|---|---|---|---|
+| acurácia no teste | ~96% | ~96% (custo ≈0) | ~85% | ~85% (custo ≈0) |
+| NMI(código, rótulo) por grupo | ~0.81 (uniforme) | ~0.42 (heterogêneo) | ~0.67 (uniforme) | ~0.31 (heterogêneo) |
+| NMI entre códigos de grupos diferentes | ~0.84 (redundante) | ~0.08 (quase independente) | ~0.73 (redundante) | ~0.09 (quase independente) |
+| ganho do par vs melhor grupo sozinho | −0.04 | **+0.19** | −0.05 | **+0.15** |
 
-Ou seja: nenhum grupo sozinho fica confiante sobre o dígito, mas pares de grupos conectados, combinados, carregam mais informação sobre a classe do que qualquer um isoladamente — especialização real via o grafo, não redundância. `report_specialization` imprime esses três números (NMI por grupo, NMI entre grupos, ganho do par) a cada execução do script, para acompanhar esse efeito. `REDUNDANCY_WEIGHT = 0` reproduz o comportamento redundante original.
+Ou seja: nenhum grupo sozinho fica confiante sobre a classe, mas pares de grupos conectados, combinados, carregam mais informação do que qualquer um isoladamente — especialização real via o grafo, não redundância, e o efeito se mantém em ambos os datasets. `specialization_report_text` calcula esses três números (NMI por grupo, NMI entre grupos, ganho do par) e eles vão pro `metrics.txt` de cada execução. `REDUNDANCY_WEIGHT = 0` reproduz o comportamento redundante original.
 
 ## Requisitos
 
