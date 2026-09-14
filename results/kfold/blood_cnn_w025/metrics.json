@@ -1,0 +1,335 @@
+{
+  "dataset": "bloodmnist",
+  "folds": 5,
+  "classes": [
+    "basophil",
+    "eosinophil",
+    "erythroblast",
+    "immature granulocytes(myelocytes, metamyelocytes and promyelocytes)",
+    "lymphocyte",
+    "monocyte",
+    "neutrophil",
+    "platelet"
+  ],
+  "config": {
+    "groups": 8,
+    "units": 128,
+    "layers": 3,
+    "topk": 4,
+    "hv_dim": 256,
+    "frame_embed": 128,
+    "epochs": 120,
+    "batch": 1024,
+    "lr": 0.002,
+    "seed": 0,
+    "redundancy_weight": 0.25,
+    "encoder": "cnn",
+    "card": 16,
+    "n_samples": 17092
+  },
+  "summary": {
+    "accuracy": {
+      "mean": 0.9280947296378909,
+      "std": 0.005831770006153839,
+      "min": 0.9192510239906378,
+      "max": 0.9365311494589061
+    },
+    "auc_macro": {
+      "mean": 0.9844782598131152,
+      "std": 0.001868339908386496,
+      "min": 0.9814838655228298,
+      "max": 0.9873882941564774
+    },
+    "balanced_accuracy": {
+      "mean": 0.9195614472549817,
+      "std": 0.006981912810478232,
+      "min": 0.9060507351438758,
+      "max": 0.9262570864615722
+    },
+    "f1_macro": {
+      "mean": 0.9180234922417473,
+      "std": 0.007266546539092978,
+      "min": 0.9064193719046367,
+      "max": 0.9281063509044423
+    },
+    "f1_weighted": {
+      "mean": 0.9281666687794873,
+      "std": 0.005921026602131949,
+      "min": 0.9191476926727274,
+      "max": 0.936573535545277
+    },
+    "precision_macro": {
+      "mean": 0.9175322638339676,
+      "std": 0.008297332628059205,
+      "min": 0.9076730541275642,
+      "max": 0.9301156250131095
+    },
+    "recall_macro": {
+      "mean": 0.9195614472549817,
+      "std": 0.006981912810478232,
+      "min": 0.9060507351438758,
+      "max": 0.9262570864615722
+    },
+    "cohen_kappa": {
+      "mean": 0.9160409205963091,
+      "std": 0.00679252724515665,
+      "min": 0.9056375522867115,
+      "max": 0.9258167800261248
+    },
+    "mcc": {
+      "mean": 0.916132764812963,
+      "std": 0.006755137587433354,
+      "min": 0.9057059077116383,
+      "max": 0.9258376509087762
+    },
+    "nmi_code_label_mean": {
+      "mean": 0.5029690098904365,
+      "std": 0.018263854688472685,
+      "min": 0.47093449173508867,
+      "max": 0.5273755984331513
+    },
+    "nmi_code_label_std": {
+      "mean": 0.06502073486271588,
+      "std": 0.020090811237211084,
+      "min": 0.03927609720302762,
+      "max": 0.08492979856311736
+    },
+    "nmi_code_label_max": {
+      "mean": 0.608785212541654,
+      "std": 0.030466886556000328,
+      "min": 0.5710070892391929,
+      "max": 0.6548424367164575
+    },
+    "nmi_between_groups": {
+      "mean": 0.23801651111500927,
+      "std": 0.03344863491323625,
+      "min": 0.17850063324382487,
+      "max": 0.28225046778821616
+    },
+    "edge_pair_gain": {
+      "mean": 0.12295522352194321,
+      "std": 0.01585663087866489,
+      "min": 0.10805463480882058,
+      "max": 0.1442802468987091
+    },
+    "fillers_used_mean": {
+      "mean": 5.325,
+      "std": 0.12747548783981963,
+      "min": 5.125,
+      "max": 5.5
+    },
+    "code_perplexity_mean": {
+      "mean": 3.6326454216994657,
+      "std": 0.20155441850626427,
+      "min": 3.3314673121719647,
+      "max": 3.8751361083045435
+    },
+    "alphabet_utilization": {
+      "mean": 0.3328125,
+      "std": 0.007967217989988727,
+      "min": 0.3203125,
+      "max": 0.34375
+    },
+    "vsa_cleanup_accuracy": {
+      "mean": 0.7548068046569825,
+      "std": 0.07596763109212487,
+      "min": 0.628693699836731,
+      "max": 0.8314072489738464
+    },
+    "train_seconds": {
+      "mean": 94.37732501029969,
+      "std": 0.2894605841761229,
+      "min": 93.91170835494995,
+      "max": 94.79671859741211
+    }
+  },
+  "per_fold": [
+    {
+      "accuracy": 0.9365311494589061,
+      "auc_macro": 0.9814838655228298,
+      "balanced_accuracy": 0.9262570864615722,
+      "f1_macro": 0.9281063509044423,
+      "f1_weighted": 0.936573535545277,
+      "precision_macro": 0.9301156250131095,
+      "recall_macro": 0.9262570864615722,
+      "cohen_kappa": 0.9258167800261248,
+      "mcc": 0.9258376509087762,
+      "nmi_code_label_mean": 0.508669958968331,
+      "nmi_code_label_std": 0.08492979856311736,
+      "nmi_code_label_max": 0.6548424367164575,
+      "nmi_between_groups": 0.23985331477805336,
+      "edge_pair_gain": 0.10930594164072124,
+      "fillers_used_mean": 5.375,
+      "code_perplexity_mean": 3.690755388191983,
+      "alphabet_utilization": 0.3359375,
+      "vsa_cleanup_accuracy": 0.7786267995834351,
+      "train_seconds": 94.31710577011108
+    },
+    {
+      "accuracy": 0.9245393389880082,
+      "auc_macro": 0.9844738808516265,
+      "balanced_accuracy": 0.9223431139942115,
+      "f1_macro": 0.9143299940820078,
+      "f1_weighted": 0.9244514532582803,
+      "precision_macro": 0.9090433739518166,
+      "recall_macro": 0.9223431139942115,
+      "cohen_kappa": 0.9120439490093375,
+      "mcc": 0.9123007811630932,
+      "nmi_code_label_mean": 0.5063400482144563,
+      "nmi_code_label_std": 0.07753757181453401,
+      "nmi_code_label_max": 0.631469911893973,
+      "nmi_between_groups": 0.245609071488593,
+      "edge_pair_gain": 0.10805463480882058,
+      "fillers_used_mean": 5.125,
+      "code_perplexity_mean": 3.791417581878937,
+      "alphabet_utilization": 0.3203125,
+      "vsa_cleanup_accuracy": 0.8232670426368713,
+      "train_seconds": 94.52262210845947
+    },
+    {
+      "accuracy": 0.9297834991222937,
+      "auc_macro": 0.9844365579339097,
+      "balanced_accuracy": 0.9210817866421535,
+      "f1_macro": 0.920153872843291,
+      "f1_weighted": 0.930096082749214,
+      "precision_macro": 0.9203585384402891,
+      "recall_macro": 0.9210817866421535,
+      "cohen_kappa": 0.9180170503987464,
+      "mcc": 0.9180920112898415,
+      "nmi_code_label_mean": 0.5015249521011549,
+      "nmi_code_label_std": 0.03927609720302762,
+      "nmi_code_label_max": 0.5710070892391929,
+      "nmi_between_groups": 0.24386906827635896,
+      "edge_pair_gain": 0.1442802468987091,
+      "fillers_used_mean": 5.25,
+      "code_perplexity_mean": 3.4744507179498996,
+      "alphabet_utilization": 0.328125,
+      "vsa_cleanup_accuracy": 0.628693699836731,
+      "train_seconds": 93.91170835494995
+    },
+    {
+      "accuracy": 0.930368636629608,
+      "auc_macro": 0.9873882941564774,
+      "balanced_accuracy": 0.9220745140330958,
+      "f1_macro": 0.9211078714743582,
+      "f1_weighted": 0.9305645796719377,
+      "precision_macro": 0.9204707276370592,
+      "recall_macro": 0.9220745140330958,
+      "cohen_kappa": 0.9186892712606249,
+      "mcc": 0.9187274729914658,
+      "nmi_code_label_mean": 0.47093449173508867,
+      "nmi_code_label_std": 0.08142922297119297,
+      "nmi_code_label_max": 0.6003292407044852,
+      "nmi_between_groups": 0.17850063324382487,
+      "edge_pair_gain": 0.1130034028915174,
+      "fillers_used_mean": 5.5,
+      "code_perplexity_mean": 3.3314673121719647,
+      "alphabet_utilization": 0.34375,
+      "vsa_cleanup_accuracy": 0.7120392322540283,
+      "train_seconds": 94.3384702205658
+    },
+    {
+      "accuracy": 0.9192510239906378,
+      "auc_macro": 0.9846087006007319,
+      "balanced_accuracy": 0.9060507351438758,
+      "f1_macro": 0.9064193719046367,
+      "f1_weighted": 0.9191476926727274,
+      "precision_macro": 0.9076730541275642,
+      "recall_macro": 0.9060507351438758,
+      "cohen_kappa": 0.9056375522867115,
+      "mcc": 0.9057059077116383,
+      "nmi_code_label_mean": 0.5273755984331513,
+      "nmi_code_label_std": 0.04193098376170747,
+      "nmi_code_label_max": 0.5862773841541614,
+      "nmi_between_groups": 0.28225046778821616,
+      "edge_pair_gain": 0.14013189136994772,
+      "fillers_used_mean": 5.375,
+      "code_perplexity_mean": 3.8751361083045435,
+      "alphabet_utilization": 0.3359375,
+      "vsa_cleanup_accuracy": 0.8314072489738464,
+      "train_seconds": 94.79671859741211
+    }
+  ],
+  "confusion_matrix": [
+    [
+      1057,
+      11,
+      7,
+      89,
+      24,
+      23,
+      7,
+      0
+    ],
+    [
+      9,
+      3068,
+      6,
+      10,
+      2,
+      4,
+      17,
+      1
+    ],
+    [
+      3,
+      3,
+      1442,
+      33,
+      42,
+      7,
+      13,
+      8
+    ],
+    [
+      85,
+      5,
+      34,
+      2436,
+      65,
+      186,
+      79,
+      5
+    ],
+    [
+      20,
+      0,
+      29,
+      38,
+      1112,
+      15,
+      0,
+      0
+    ],
+    [
+      15,
+      2,
+      7,
+      145,
+      10,
+      1231,
+      8,
+      2
+    ],
+    [
+      1,
+      10,
+      15,
+      106,
+      5,
+      7,
+      3181,
+      4
+    ],
+    [
+      0,
+      0,
+      9,
+      0,
+      0,
+      1,
+      2,
+      2336
+    ]
+  ]
+}

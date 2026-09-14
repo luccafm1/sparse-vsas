@@ -1,0 +1,58 @@
+bateria k-fold | dataset: bloodmnist | folds: 5
+classes (8): basophil, eosinophil, erythroblast, immature granulocytes(myelocytes, metamyelocytes and promyelocytes), lymphocyte, monocyte, neutrophil, platelet
+config: groups=8 card=16 units=128 layers=3 topk=4 hv_dim=256 epochs=120 batch=1024 lr=0.002 redundancy_weight=0.0
+
+classificação (média ± desvio entre folds):
+  acurácia                     0.8579 ± 0.0077   [0.8458, 0.8693]
+  AUC macro (OvR)              0.9671 ± 0.0029   [0.9621, 0.9705]
+  acurácia balanceada          0.8343 ± 0.0099   [0.8219, 0.8477]
+  F1 macro                     0.8372 ± 0.0102   [0.8224, 0.8515]
+  F1 ponderado                 0.8582 ± 0.0079   [0.8459, 0.8699]
+  precisão macro               0.8418 ± 0.0118   [0.8213, 0.8562]
+  recall macro                 0.8343 ± 0.0099   [0.8219, 0.8477]
+  kappa de Cohen               0.8339 ± 0.0089   [0.8200, 0.8471]
+  MCC                          0.8341 ± 0.0089   [0.8201, 0.8473]
+
+arquitetura (média ± desvio entre folds):
+  NMI(código, rótulo) média por grupo  0.5279 ± 0.0104
+  NMI(código, rótulo) do melhor grupo  0.5980 ± 0.0156
+  NMI entre grupos (redundância)       0.4305 ± 0.0180
+  ganho do par vs melhor grupo sozinho 0.0471 ± 0.0166
+  fillers usados por grupo (de 16)     5.7750 ± 0.2424
+  perplexidade do código               5.1238 ± 0.2871
+  utilização do alfabeto               0.3609 ± 0.0151
+  recuperação VSA (cleanup)            0.9840 ± 0.0111
+  segundos de treino por fold          46.4851 ± 0.4390
+
+por fold (acurácia / AUC macro):
+  fold 0: acc=0.8605  auc=0.9691  f1=0.8433  (47.3s)
+  fold 1: acc=0.8693  auc=0.9705  f1=0.8515  (46.3s)
+  fold 2: acc=0.8596  auc=0.9672  f1=0.8389  (46.2s)
+  fold 3: acc=0.8458  auc=0.9664  f1=0.8224  (46.2s)
+  fold 4: acc=0.8546  auc=0.9621  f1=0.8298  (46.4s)
+
+relatório por classe (todos os folds concatenados):
+                                                                     precision    recall  f1-score   support
+
+                                                           basophil     0.7412    0.6913    0.7154      1218
+                                                         eosinophil     0.9595    0.9500    0.9547      3117
+                                                       erythroblast     0.8546    0.8678    0.8612      1551
+immature granulocytes(myelocytes, metamyelocytes and promyelocytes)     0.7138    0.7668    0.7394      2895
+                                                         lymphocyte     0.8020    0.7908    0.7964      1214
+                                                           monocyte     0.7537    0.7197    0.7363      1420
+                                                         neutrophil     0.9100    0.8964    0.9031      3329
+                                                           platelet     0.9898    0.9919    0.9909      2348
+
+                                                           accuracy                         0.8579     17092
+                                                          macro avg     0.8406    0.8343    0.8372     17092
+                                                       weighted avg     0.8591    0.8579    0.8582     17092
+
+matriz de confusão (linhas = verdadeiro, colunas = predito):
+[[ 842   16   14  221   62   55    8    0]
+ [  14 2961    2   36    4    3   94    3]
+ [  10    6 1346   60   67    9   35   18]
+ [ 154   23   53 2220   76  237  132    0]
+ [  47    0   84   96  960   13   14    0]
+ [  61    6   11  305    7 1022    8    0]
+ [   8   74   51  172   20   17 2984    3]
+ [   0    0   14    0    1    0    4 2329]]

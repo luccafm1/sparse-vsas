@@ -30,7 +30,6 @@ Usage:
 Obs.: 'SJ' was the working name of 'sparse-joint networks', we havent really settled on a name so that's what we'll call it
 for the time being
 """
-from __future__ import annotations
 
 import math
 import random
@@ -345,7 +344,7 @@ class SparseJointCore(nn.Module):
         hs, h = [h0], h0
         for layer, transition in enumerate(self.transitions):
             if self.routed:
-                connectivity = self.transition_connectivity(masks, layer).
+                connectivity = self.transition_connectivity(masks, layer)
                 block = connectivity.T.repeat_interleave(self.W, 0).repeat_interleave(
                     self.W, 1)
                 fan_in = connectivity.sum(0).clamp_min(1.0)
