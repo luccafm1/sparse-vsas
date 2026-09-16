@@ -40,7 +40,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from sj_invariants import code_probabilities, full_path_locality
 
 MASKED_FILLER = -1.0e4
 
@@ -50,12 +49,91 @@ SJ_PROGRAM_GRADES = (1, 2)
 SJ_JOINT_RULE = "literal-neural-intersection"
 SJ_MISSING_ATOM = "absent-zero-term"
 
+LOCALITY_METRIC = "full_path_layer"
+
 
 def sj_grammar_signature() -> tuple:
     """public compatibility signature for native SJ program composition"""
 
     return (SJ_GRAMMAR_VERSION, SJ_BINDING, SJ_PROGRAM_GRADES,
             SJ_JOINT_RULE, SJ_MISSING_ATOM)
+
+
+def code_probabilities(core, value, *, hard_only=False):
+    """Validate hard codes or nonnegative atom mass; zero mass means absence."""
+    if not isinstance(value, torch.Tensor):
+        raise TypeError("SJ codes/probabilities must be a torch.Tensor")
+    if value.device != core.codebook.device:
+        raise ValueError("SJ codes and core must be on the same device")
+    if value.ndim == 2:
+        if value.shape[1] != core.G:
+            raise ValueError("expected codes with shape [batch, groups]")
+        if value.dtype not in (torch.int8, torch.int16, torch.int32, torch.int64):
+            raise TypeError("hard SJ codes must have a signed integer dtype")
+        codes = value.long()
+        if bool(((codes < -1) | (codes >= core.C)).any()):
+            raise ValueError("SJ code is outside the live filler vocabulary (only -1 denotes absence)")
+        valid = codes >= 0
+        probs = F.one_hot(codes.clamp_min(0), core.C).to(core.codebook.dtype)
+        probs = probs * valid[..., None]
+    else:
+        if hard_only or value.ndim != 3 or value.shape[1:] != (core.G, core.C):
+            raise ValueError("expected probabilities with shape [batch, groups, fillers]")
+        if not value.is_floating_point():
+            raise TypeError("soft SJ atom mass must be floating point")
+        if not bool(torch.isfinite(value).all()) or bool((value < 0).any()):
+            raise ValueError("soft SJ atom mass must be finite and nonnegative")
+        probs = value.to(core.codebook.dtype)
+        if not bool(torch.isfinite(probs).all()) or not bool(torch.isfinite(probs.sum(-1)).all()):
+            raise ValueError("soft SJ atom mass overflows the core dtype")
+    live = getattr(core, "filler_live", None)
+    if live is not None and bool((probs[..., live == 0] != 0).any()):
+        raise ValueError("SJ code/probability uses a disabled group filler")
+    return probs
+
+
+def full_path_locality(model, x, device, rows=128):
+    """Differentiate the actual cleanup logits with respect to first-layer units."""
+    if rows <= 0 or len(x) == 0:
+        raise ValueError("locality requires at least one observation")
+    core = model.sj if hasattr(model, "sj") else model.core
+    modes = [(m, m.training) for m in model.modules()]
+    capture = []
+    def hold(module, args, output):
+        h = output.detach().requires_grad_(True)
+        capture.append(h)
+        return h
+    hook = core.input.register_forward_hook(hold)
+    try:
+        model.eval()
+        with torch.inference_mode(False), torch.enable_grad():
+            chunk = torch.as_tensor(x[:rows], device=device, dtype=core.input[0].weight.dtype).clone()
+            out = core(model.encoder(chunk))
+            h0 = capture[0]
+            owned = core.routing_masks().detach()[0]
+            fractions, ratios, totals = [], [], []
+            for group in range(core.G):
+                chosen = out["logits"][:, group].max(-1).values.sum()
+                grad = torch.autograd.grad(chosen, h0, retain_graph=True)[0]
+                influence = grad.reshape(len(chunk), core.U, core.W).abs().sum(-1).mean(0)
+                on = (influence * owned[group]).sum()
+                off = (influence * (1-owned[group])).sum()
+                total = on + off
+                if not bool(torch.isfinite(total)) or float(total) <= 0:
+                    raise ValueError("locality is indeterminate for zero/nonfinite sensitivity")
+                fractions.append(float(off/total))
+                n_on = owned[group].sum().clamp_min(1)
+                n_off = (1-owned[group]).sum().clamp_min(1)
+                ratios.append(float((off/n_off)/(on/n_on).clamp_min(1e-12)))
+                totals.append(float(total))
+    finally:
+        hook.remove()
+        for module, training in modes:
+            module.training = training
+    return {"metric": LOCALITY_METRIC, "rows": len(chunk), "outside_fraction": float(np.mean(fractions)),
+            "fractions_per_group": fractions, "mean_ratios_per_group": ratios, "total_sensitivity_per_group": totals}
+
+
 
 
 # ============================================================ configuration
@@ -345,7 +423,7 @@ class SparseJointCore(nn.Module):
         hs, h = [h0], h0
         for layer, transition in enumerate(self.transitions):
             if self.routed:
-                connectivity = self.transition_connectivity(masks, layer).
+                connectivity = self.transition_connectivity(masks, layer)
                 block = connectivity.T.repeat_interleave(self.W, 0).repeat_interleave(
                     self.W, 1)
                 fan_in = connectivity.sum(0).clamp_min(1.0)
