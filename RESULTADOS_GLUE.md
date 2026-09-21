@@ -7,6 +7,23 @@ monolítico?**
 Todos os números abaixo são acurácia em porcentagem, exceto `MAE` (graus, menor
 é melhor). `média ± desvio-padrão` sobre as 5 seeds.
 
+## O dataset
+
+dSprites (Matthey et al., 2017) — 737.280 imagens binárias 64×64, geradas pelo
+produto cartesiano completo de cinco fatores independentes:
+
+| fator | valores | acaso |
+|---|---|---|
+| shape | 3 (quadrado, elipse, coração) | 33.3% |
+| scale | 6 | 16.7% |
+| orientation | 40, cobrindo [0, 2π) | 2.5% |
+| x | 32 | 3.1% |
+| y | 32 | 3.1% |
+
+Por ser exaustivo e perfeitamente balanceado, não há correlação espúria entre
+fatores: acertar um não ajuda a acertar outro. É o que torna o `all-5`
+interpretável — e o que faz a grade de acaso acima ser exata, não estimada.
+
 ## Os três modelos
 
 | modelo | o que é |
@@ -68,8 +85,7 @@ O MLP faz 78.97 / 77.63 em x e y, e a cola faz 80.56 / 79.50 — ganho de +1.6 e
 +1.9 pp. Em compensação, shape ganha +19.8 e scale +29.1 pp. A cola está
 resolvendo os fatores discretos e mal toca nos posicionais.
 
-Vale notar quanto isso está acima do acaso. Assumindo a grade padrão de 5
-fatores (3 formas, 6 escalas, 40 orientações, 32 posições em cada eixo):
+Vale notar quanto isso está acima do acaso, em múltiplos da grade do dSprites:
 
 | fator | acaso | MLP | SJ | GLUED |
 |---|---|---|---|---|
@@ -113,12 +129,23 @@ Um chute uniforme em 360° dá MAE de ~90°. Os três modelos ficam entre 84 e
 glue nas suas melhores seeds (79.25° na seed 4).
 
 Isso convive com `within-1` de 32.5% (4.3× o acaso de 7.5%) porque os erros são
-de cauda pesada: o modelo ou acerta de perto, ou erra por ~180°. A explicação
-mais provável é simetria da forma — quadrado tem simetria de 90°, elipse de
-180°, então boa parte dos ângulos é genuinamente indistinguível a partir do
-pixel. Se for isso, o MAE bruto **não é a métrica certa** para esse fator, e o
-número honesto é `within-1` ou um MAE calculado módulo a simetria da forma.
-Vale confirmar antes de reportar o MAE em qualquer lugar.
+de cauda pesada: o modelo ou acerta de perto, ou erra por ~180°.
+
+A causa é conhecida e é do dataset, não dos modelos: **as formas do dSprites são
+simétricas**. O quadrado é invariante a rotações de 90°, a elipse a 180°. Como
+os 40 ângulos cobrem [0, 2π), isso significa que para o quadrado cada rótulo de
+orientação tem 3 outros rótulos que produzem exatamente a mesma imagem, e para a
+elipse, 1. Só o coração é identificável em todo o círculo.
+
+O teto de acurácia de orientação no dSprites, portanto, **não é 100%**: com as
+três formas igualmente representadas, um modelo perfeito acerta o rótulo exato
+em cerca de (1 + 1/2 + 1/4)/3 ≈ 58% dos casos, errando o resto por múltiplos da
+simetria — que é exatamente onde a cauda de ~180° do MAE vem.
+
+Consequência prática: o MAE bruto **não é a métrica certa** para esse fator, e os
+22.68% de acurácia do glue devem ser lidos contra um teto de ~58%, não de 100%.
+O número honesto é um MAE dobrado pela simetria de cada forma, ou a acurácia
+condicionada ao coração. Nenhum dos dois está medido aqui.
 
 ## Dados por seed
 
@@ -154,6 +181,6 @@ Vale confirmar antes de reportar o MAE em qualquer lugar.
   para FHRR (`sparse-joint-fhrr-v1`) e o glue foi portado para a `main`, mas a
   bateria ainda não foi reexecutada sobre a arquitetura nova. Os resultados
   valem como baseline a reproduzir, não como estado atual.
-- **A grade de fatores usada na tabela de acaso foi inferida** dos nomes das
-  métricas (3/6/40/32/32). Se a configuração real diferir, aquela tabela muda —
-  as demais, não.
+- **A orientação não está sendo medida com a métrica certa** (ver acima). Isso
+  não afeta as comparações entre modelos, que sofrem do mesmo viés, mas afeta
+  qualquer leitura absoluta do número.
