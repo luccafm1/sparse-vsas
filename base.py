@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 """Base sparse hypervector network architecture
