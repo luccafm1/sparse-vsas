@@ -18,6 +18,7 @@ Uso:
 
 import argparse
 import json
+import math
 import time
 from pathlib import Path
 
@@ -40,7 +41,7 @@ from sklearn.metrics import (
 from sklearn.model_selection import StratifiedKFold
 
 import plots
-from base import SJConfig, build_model, encode, vsa_cleanup_accuracy
+from base import SJConfig, build_model, supervised_losses
 
 
 # ------------------------------------------------------------------ dados
@@ -86,9 +87,43 @@ def predict_proba(model, x: np.ndarray, device: torch.device, batch: int = 1024)
     out = []
     for start in range(0, len(x), batch):
         chunk = torch.from_numpy(x[start:start + batch]).to(device)
-        logits = model(chunk)["factor_logits"][0]
-        out.append(F.softmax(logits, dim=-1).cpu().numpy())
+        out.append(F.softmax(model(chunk), dim=-1).cpu().numpy())
     return np.concatenate(out, axis=0)
+
+
+@torch.no_grad()
+def encode(model, x: np.ndarray, device: torch.device, batch: int = 2048) -> np.ndarray:
+    """Códigos duros do bottleneck. Era `base.encode`, removido na migração FHRR."""
+
+    model.eval()
+    out = []
+    for start in range(0, len(x), batch):
+        chunk = torch.from_numpy(x[start:start + batch]).to(device)
+        out.append(model.encode_codes(chunk).cpu().numpy())
+    return np.concatenate(out, axis=0)
+
+
+@torch.no_grad()
+def vsa_cleanup_accuracy(model, codes: np.ndarray, device: torch.device,
+                         rows: int = 4096) -> float:
+    """Bundle -> unbind por papel -> cleanup: fração de fillers recuperados.
+
+    Era `base.vsa_cleanup_accuracy` na versão bipolar. Aqui é a mesma medida
+    reescrita em FHRR, seguindo a rota de `SparseJointCore.forward`: os fasores
+    são somados num bundle, recuperados por conjugado do papel e limpos contra o
+    banco. Mede a capacidade do bundle, não a qualidade do treino.
+    """
+
+    core = model.sj
+    c = torch.from_numpy(codes[:rows]).long().to(device)
+    bank = core.filler_bank()
+    one_hot = F.one_hot(c.clamp_min(0), core.C).to(bank.dtype)
+    filler = torch.einsum("bgc,gcd->bgd", one_hot, bank)
+    unary = core.roles[None] * filler
+    bundle = unary.sum(1) / math.sqrt(core.G)
+    retrieved = bundle[:, None] * torch.conj(core.roles[None])
+    recovered = core._cleanup(retrieved).argmax(-1)
+    return float((recovered == c).float().mean())
 
 
 # ------------------------------------------------------------------ métricas
@@ -221,21 +256,19 @@ def pairwise_mi_penalty(probs: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
 
 def train_supervised(model, x: np.ndarray, z: np.ndarray, *, device: torch.device,
                      redundancy_weight: float):
-    """Espelha `base.train(mode="acquisition", pairs=None)` e opcionalmente soma
-    a penalidade de redundância.
+    """Loop supervisionado com a penalidade de redundância opcional.
 
-    Replicado aqui em vez de alterar o `base.py`: esta branch é só de teste, e
-    com `redundancy_weight=0` o loop reproduz exatamente o baseline (serve de
-    controle da comparação).
+    O `base.fit` faz o mesmo treino, mas não expõe o `probs` de cada passo — que
+    é justamente o que a penalidade de MI entre grupos consome. Com
+    `redundancy_weight=0` os dois caminhos são equivalentes, então o baseline
+    continua sendo o controle da comparação.
     """
-
-    from base import acquisition_losses
 
     cfg = model.cfg
     model.to(device).train()
-    opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=1e-5)
+    opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
     xt = torch.from_numpy(x).to(device)
-    zt = torch.from_numpy(z).long().to(device)
+    zt = torch.from_numpy(np.asarray(z).reshape(-1)).long().to(device)
 
     n = len(xt)
     generator = torch.Generator(device="cpu").manual_seed(cfg.seed + 7717)
@@ -243,14 +276,14 @@ def train_supervised(model, x: np.ndarray, z: np.ndarray, *, device: torch.devic
         order = torch.randperm(n, generator=generator).to(device)
         for start in range(0, n, cfg.batch):
             index = order[start:start + cfg.batch]
-            out = model(xt[index])
-            losses = acquisition_losses(model, out, zt[index], None)
+            details = model.forward_details(xt[index])
+            losses = supervised_losses(model, details, zt[index])
             if redundancy_weight:
-                losses["redundancy"] = redundancy_weight * pairwise_mi_penalty(out["probs"])
+                losses["redundancy"] = redundancy_weight * pairwise_mi_penalty(details["probs"])
             loss = sum(losses.values())
             opt.zero_grad(set_to_none=True)
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip)
             opt.step()
     return model.eval()
 
@@ -264,7 +297,6 @@ def run_fold(fold: int, x_tr, z_tr, x_te, z_te, *, cfg_kwargs, n_classes,
              ) -> tuple[dict, np.ndarray, np.ndarray, np.ndarray]:
     cfg = SJConfig(
         cardinalities=tuple([card] * cfg_kwargs["groups"]),
-        n_factors=1,
         input_dim=x_tr.shape[1],
         units=cfg_kwargs["units"],
         layers=cfg_kwargs["layers"],
@@ -278,12 +310,12 @@ def run_fold(fold: int, x_tr, z_tr, x_te, z_te, *, cfg_kwargs, n_classes,
     )
 
     torch.manual_seed(cfg.seed)
-    model = build_model(cfg, (n_classes,))
-    if encoder == "cnn":
-        model.encoder = ConvEncoder(image_shape, cfg.frame_embed)
+    model = build_model(
+        cfg, task="classification", num_outputs=n_classes,
+        encoder=ConvEncoder(image_shape, cfg.frame_embed) if encoder == "cnn" else None)
 
     started = time.time()
-    model = train_supervised(model, x_tr, z_tr.reshape(-1, 1), device=device,
+    model = train_supervised(model, x_tr, z_tr, device=device,
                              redundancy_weight=redundancy_weight)
     train_seconds = time.time() - started
 
@@ -295,11 +327,12 @@ def run_fold(fold: int, x_tr, z_tr, x_te, z_te, *, cfg_kwargs, n_classes,
     metrics.update(alphabet_metrics(codes, card))
     metrics["vsa_cleanup_accuracy"] = vsa_cleanup_accuracy(model, codes, device)
     if locality:
-        # ATENÇÃO: a definição desta métrica vem do `full_path_locality`, que hoje
-        # é reconstruído. Confirmar contra o módulo original antes de reportar.
-        from base import off_subgraph_influence
-        metrics["scaffold_outside_fraction"] = float(
-            off_subgraph_influence(model, x_te, device, rows=128))
+        # `off_subgraph_influence`/`full_path_locality` saíram do base.py na
+        # migração para FHRR e não foram reescritos. A flag fica, para não
+        # calar: quem pedir a métrica recebe o motivo de ela não existir.
+        raise NotImplementedError(
+            "--locality depende de off_subgraph_influence, removido do base.py na "
+            "migração para FHRR; reescrever a métrica antes de usar a flag")
     metrics["train_seconds"] = train_seconds
 
     return metrics, probs.argmax(axis=1), z_te, probs
