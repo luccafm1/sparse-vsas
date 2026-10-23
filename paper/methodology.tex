@@ -1,0 +1,277 @@
+% =====================================================================
+% Seção de metodologia e validação — artigo sparse-joint networks
+%
+% Mantida no repositório, ao lado do código que produz os números:
+%   validation.py  gera results/validation/*.json
+%   report.py      gera results/validation/paper/{tables,figuras}
+%
+% Para usar no artigo, copie as tabelas e figuras geradas para figs/ e
+% faça \input{methodology} depois da seção de trabalhos relacionados.
+%
+% Requer no preâmbulo (já presentes no template): graphicx, booktabs,
+% tikz (arrows.meta, positioning), amsmath.
+% =====================================================================
+
+\section{The Sparse-Joint Core}
+\label{sec:architecture}
+
+A sparse-joint network replaces the dense bottleneck of a conventional encoder
+with a \emph{graded program}: a representation that is simultaneously discrete,
+as a tuple of per-group symbols, and continuous, as a hypervector that the
+network can differentiate through. This section states the construction
+precisely; Section~\ref{sec:protocol} describes how we test it.
+
+\subsection{Groups and the scaffold}
+
+Let $U$ be the number of hidden units per layer, $L$ the number of layers and
+$G$ the number of \emph{groups}. A group is a sparse population of units
+distributed across layers, fixed before training by a binary mask
+$M \in \{0,1\}^{L \times G \times U}$, where $M_{l,g,u}=1$ means that group $g$
+owns unit $u$ in layer $l$. We call $M$ the \emph{scaffold}.
+
+Two groups are adjacent when they physically share a unit:
+\begin{equation}
+  (i,j) \in E \iff \exists\, l,u : M_{l,i,u} = M_{l,j,u} = 1 .
+  \label{eq:edges}
+\end{equation}
+The edge set $E$ is therefore not a hyperparameter chosen alongside the
+architecture; it is a \emph{consequence} of the scaffold, readable from the
+weights themselves. This is what later allows $E$ to act as a compatibility
+certificate between two independently trained networks: two networks with
+isomorphic scaffolds expose the same relational skeleton, even though neither
+has seen the other's data. Figure~\ref{fig:glue}(a) shows the graph used
+throughout this work, for $G=8$.
+
+Unit-to-unit transitions are routed through the scaffold: a connection between
+units $u$ and $u'$ exists only if some group contains both. A group therefore
+cannot read an arbitrary part of the hidden state, which is what makes the
+sparsity structural rather than merely a regulariser.
+
+\subsection{From activations to a program}
+
+Write $h^{(l)} \in \mathbb{R}^{U \times W}$ for the hidden state at layer $l$,
+each unit carrying a width-$W$ vector, with
+$h^{(0)} = \mathrm{GELU}(W_{\text{in}}\, \phi(x))$ for an encoder $\phi$. Each
+group pools the units it owns, across all layers:
+\begin{equation}
+  f_g = \frac{1}{L}\sum_{l=1}^{L}
+        \frac{\sum_{u} M_{l,g,u}\, h^{(l)}_u}{\sum_{u} M_{l,g,u}},
+  \qquad
+  v_g = \frac{W_{\text{val}} f_g}{\lVert W_{\text{val}} f_g \rVert}.
+  \label{eq:pool}
+\end{equation}
+
+Each group owns a fixed bipolar \emph{role} vector $r_g \in \{-1,+1\}^{D}$,
+drawn once at initialisation. Binding is the Hadamard product, the standard
+multiply-add vector-symbolic algebra: $r_g \odot v_g$ binds the group's value to
+its identity, and because $r_g \odot r_g = \mathbf{1}$, binding again by the
+same role unbinds it. Unary messages are written back to every unit the group
+owns, and pairwise messages $r_i v_i \odot r_j v_j$ only to the units that $i$
+and $j$ physically share, so interaction is confined to $E$ by construction.
+The stack is then re-pooled, giving refined values $v'_g$.
+
+The refined values are superposed into a single hypervector, and each group is
+recovered from the superposition by unbinding with its own role:
+\begin{equation}
+  b = \frac{1}{\sqrt{G}}\sum_{g=1}^{G} r_g \odot v'_g,
+  \qquad
+  \tilde{v}_g = \sqrt{G}\, \bigl( b \odot r_g \bigr).
+  \label{eq:bundle}
+\end{equation}
+Recovery is approximate: the other $G-1$ terms survive as noise whose magnitude
+falls with $D$. We measure this directly (Section~\ref{sec:protocol},
+\emph{VSA recovery}) rather than assuming it, because every downstream claim
+about reading codes back out depends on it.
+
+\subsection{Discretisation}
+
+Each group owns a codebook $C_g \in \mathbb{R}^{K_g \times D}$ with its own
+alphabet size $K_g$, so groups need not share a vocabulary. Cleanup is a cosine
+lookup against that codebook,
+\begin{equation}
+  \ell_{g,c} = \frac{1}{\tau}
+  \left\langle \frac{\tilde{v}_g}{\lVert \tilde{v}_g \rVert},
+               \frac{C_{g,c}}{\lVert C_{g,c} \rVert} \right\rangle
+  + m_{g,c},
+  \label{eq:cleanup}
+\end{equation}
+where $m_{g,c} = -\infty$ for $c \geq K_g$ masks out fillers outside the group's
+alphabet. The discrete code is $z_g = \arg\max_c \ell_{g,c}$, and gradients pass
+through a straight-through estimator~\cite{bengio2013estimating,oord2017neural}, so the forward pass is exactly discrete
+while the backward pass stays differentiable.
+
+The exported \emph{program} is graded, concatenating a unary and a pairwise
+bundle:
+\begin{equation}
+  \begin{aligned}
+    P(x) &= \bigl[\, p_{\text{unary}} \;;\; p_{\text{pair}} \,\bigr],\\
+    p_{\text{unary}} &= \tfrac{1}{\sqrt{G}}\textstyle\sum\nolimits_g r_g \odot \hat{v}_g,\\
+    p_{\text{pair}} &= \tfrac{1}{\sqrt{|E|}}\textstyle\sum\nolimits_{(i,j) \in E}
+       \hat{h}_i \odot \hat{h}_j,
+  \end{aligned}
+  \label{eq:program}
+\end{equation}
+where $\hat{h}_g = r_g \odot \hat{v}_g$ is the bound contribution of group $g$,
+and $\hat{v}_g$ the quantised value of group $g$. The first term says what each
+part is; the second says which parts co-occur, and only along scaffold edges.
+Figure~\ref{fig:method} traces the whole path.
+
+\subsection{Redundancy between groups}
+\label{sec:penalty}
+
+Nothing in Equations~\ref{eq:pool} to~\ref{eq:program} forces groups to encode
+\emph{different} things. Trained only to classify, every group independently
+converges on the label: the codes become near-copies of one another, and the
+pairwise term of Equation~\ref{eq:program} carries nothing the unary term does
+not already carry. We confirm this empirically in Section~\ref{sec:results}.
+
+We therefore add a penalty on the mutual information between the soft code
+distributions of every pair of groups. Writing $p_g \in \Delta^{K_g}$ for the
+posterior of group $g$ on a batch, and $\hat{p}_{ij}$ for the empirical joint,
+\begin{equation}
+  \mathcal{L}_{\text{red}} =
+  \frac{1}{G(G-1)} \sum_{i \neq j}
+  \sum_{c,c'} \hat{p}_{ij}(c,c')
+  \log \frac{\hat{p}_{ij}(c,c')}{\hat{p}_i(c)\,\hat{p}_j(c')},
+  \label{eq:redundancy}
+\end{equation}
+added to the task loss with weight $\lambda$. Minimising it pushes the groups
+towards statistically independent codes. The full objective is
+$\mathcal{L} = \mathcal{L}_{\text{task}} + \mathcal{L}_{\text{VQ}}
++ \mathcal{L}_{\text{support}} + \lambda \mathcal{L}_{\text{red}}$.
+
+% =====================================================================
+
+\section{Experimental Protocol}
+\label{sec:protocol}
+
+The claims this architecture makes are about generality and about structure,
+not only about accuracy, so the protocol has to be comparable across domains
+and has to measure structure explicitly.
+
+\subsection{Architecture and ablation axes}
+
+Every result reported here uses the same core configuration: $G=8$ groups,
+alphabet $K_g=16$, $U=128$ units, $L=3$ layers, $D=256$, unit width $8$, trained
+for 120 epochs with AdamW at a learning rate of $2\times10^{-3}$ and batch
+size 1024.\footnote{The epoch count is set so that the number of optimiser steps
+matches that of the smaller-batch configuration it replaced, making the two
+training budgets comparable.} Only three axes vary, and each is named in the
+configuration:
+
+\begin{itemize}[leftmargin=*, itemsep=1pt, topsep=2pt]
+  \item \textbf{encoder}, a single dense layer over flattened pixels, or a
+        small CNN, both mapping into the same $\phi$ dimensionality;
+  \item \textbf{core}, the sparse-joint core or a dense bottleneck of
+        identical output dimensionality, used as a control;
+  \item \textbf{$\lambda$}, the weight of the redundancy penalty of
+        Equation~\ref{eq:redundancy}.
+\end{itemize}
+
+This matters for comparability. In an earlier state of this
+work the image-classification experiments and the medical-imaging experiments
+ran under different core configurations ($L=2, U=32, D=64$ against
+$L=3, U=128, D=256$), which makes any cross-domain comparison between them
+meaningless. Fixing the architecture is what licenses the generality claim in
+Section~\ref{sec:results}.
+
+\subsection{Validation}
+
+We use stratified $k$-fold cross-validation with $k=5$ rather than the official
+benchmark splits, pooling all official partitions first. Three consequences
+follow, and all three are deliberate:
+
+\begin{enumerate}[leftmargin=*, itemsep=1pt, topsep=2pt]
+  \item every sample is evaluated exactly once, which matters on the smaller
+        medical datasets where a single test split is noisy;
+  \item the fold partitions are generated from a fixed seed and are
+        \emph{identical across configurations}, so a comparison between two
+        configurations is paired fold by fold;
+  \item standardisation statistics are computed on the training fold only.
+\end{enumerate}
+
+Datasets are stratified-subsampled to a common ceiling of 17{,}000 samples, so
+that MNIST does not receive four times the training budget of BloodMNIST. Where
+a comparison is drawn between configurations, we report the paired difference
+per fold, Cohen's $d$, and a Wilcoxon signed-rank $p$-value. With five folds
+that test has little power; the effect size is the primary reading and the
+$p$-value is reported for completeness rather than as a decision rule.
+
+\begin{figure}[!t]
+\centering
+\resizebox{0.99\linewidth}{!}{%
+\begin{tikzpicture}[font=\small, node distance=3mm]
+\tikzset{
+  box/.style={draw, rounded corners, align=center, minimum height=8mm, inner sep=3pt},
+  ax/.style={draw, dashed, rounded corners, align=center, inner sep=3pt, fill=black!3},
+}
+\node[box] (data) {dataset\\(splits pooled)};
+\node[box, right=7mm of data] (cap) {stratified\\sub-sample};
+\node[box, right=7mm of cap] (fold) {stratified\\5-fold};
+\node[ax, below=9mm of fold] (axes) {ablation axes\\encoder $\cdot$ core $\cdot$ $\lambda$};
+\node[box, right=7mm of fold] (train) {train on $k-1$\\evaluate on $1$};
+\node[box, right=7mm of train] (met) {metrics:\\task $+$ structure};
+
+\draw[-{Latex[length=2mm]}] (data) -- (cap);
+\draw[-{Latex[length=2mm]}] (cap) -- (fold);
+\draw[-{Latex[length=2mm]}] (fold) -- (train);
+\draw[-{Latex[length=2mm]}] (train) -- (met);
+\draw[-{Latex[length=2mm]}] (axes) -- (train);
+\node[below=1mm of axes, font=\scriptsize, align=center]
+  {same partitions for every axis value\\$\Rightarrow$ fold-paired comparison};
+\end{tikzpicture}%
+}
+\caption{The protocol. Fold partitions are fixed by seed and reused across every
+configuration of a dataset, which is what makes the comparisons in
+Table~\ref{tab:stats} paired rather than independent.}
+\label{fig:protocol}
+\end{figure}
+
+\subsection{What we measure}
+
+Task performance alone cannot distinguish a network whose groups carry
+complementary information from one whose groups are redundant copies, since
+both can classify equally well. We therefore report two families.
+
+\textbf{Task.} Accuracy and macro one-vs-rest AUC, which are the metrics the
+MedMNIST benchmark~\cite{yang2023medmnist} reports and therefore allow comparison against published
+baselines; plus balanced accuracy, macro F1, Cohen's $\kappa$ and MCC. On
+imbalanced medical data the gap between accuracy and balanced accuracy is itself
+diagnostic: a single class accounts for roughly $67\%$ of DermaMNIST, and a
+model that collapses onto it scores well on the former and poorly on the latter.
+
+\textbf{Structure.} Let $z_g$ be the code of group $g$ and $y$ the label.
+\begin{itemize}[leftmargin=*, itemsep=1pt, topsep=2pt]
+  \item $\mathrm{NMI}(z_g; y)$, averaged over groups, which is how much any
+        single group knows on its own;
+  \item $\mathrm{NMI}(z_i; z_j)$, averaged over pairs, the \emph{redundancy};
+        near zero means independent codes;
+  \item \textbf{pair gain}, the quantity the architecture is built to produce:
+        \begin{equation}
+          \begin{aligned}
+            \frac{1}{|E|}\sum_{(i,j)\in E} \Bigl[
+              &\mathrm{NMI}\bigl((z_i,z_j); y\bigr)\\
+              &- \max_{g \in \{i,j\}} \mathrm{NMI}(z_g;y) \Bigr],
+          \end{aligned}
+          \label{eq:pairgain}
+        \end{equation}
+        positive only when a connected pair carries more about the label
+        \emph{together} than either member carries alone. This is the
+        operational definition of compositionality we commit to;
+  \item \textbf{VSA recovery}, the fraction of codes recovered by the
+        bundle $\rightarrow$ unbind $\rightarrow$ cleanup round trip of
+        Equations~\ref{eq:bundle} and~\ref{eq:cleanup}. It measures whether the
+        program remains \emph{readable}, which any downstream composition
+        between networks requires;
+  \item alphabet utilisation and code perplexity, which detect a collapsed
+        bottleneck that classifies well by ignoring most of its vocabulary.
+\end{itemize}
+
+\subsection{Reproducibility}
+
+Each run writes its per-fold metrics, the aggregate, the dataset description and
+a provenance record (commit hash, working-tree cleanliness, PyTorch version, GPU
+model, timestamp) into a single JSON file. The tables and figures in this paper
+are generated from those files by \texttt{report.py}, so no number here is
+transcribed by hand. The code, the protocol and the result files are in the
+project repository.

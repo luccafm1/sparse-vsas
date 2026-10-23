@@ -1,0 +1,175 @@
+\documentclass[conference]{IEEEtran}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[english]{babel}
+\usepackage{array}
+\usepackage[table]{xcolor}
+\usepackage{makecell}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning}
+\usepackage{placeins}
+\usepackage{enumitem}
+\usepackage[hyphens]{url}
+\usepackage[colorlinks=true,allcolors=black]{hyperref}
+\usepackage{soul} % \ul
+\setuldepth{Berlin}
+
+\newcommand{\cmark}{\textbf{X}} % symbol to mark cells
+\newcommand\red[1]{{\textcolor{red}{#1}}}
+
+\title{Native Vector-Symbolic Networks for Composing Independently Trained Models:\\
+Architecture, Protocol and Empirical Validation}
+
+\author{
+\IEEEauthorblockA{Creative Experience: Transformative Project II\\
+Bachelor’s in Computer Science -- PUCPR
+\\[3ex]
+Class 8B -- Team 11 \\
+Bruno Betiatto, Mohamad Diab, Henrique Godoy, Lucca Magalhães, Gabriel Schneider \\
+{\tt\small \{bruno.betiatto, mohamad.diab, henrique.godoy, lucca.magalhaes, gabriel.schneider\}@pucpr.edu.br}
+}
+}
+
+\date{today}
+
+\sloppy
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We investigate a neural architecture that represents its own hidden state as a
+vector-symbolic program: sparse, overlapping groups of units are pooled, bound
+to role vectors, discretised against per-group codebooks and bundled into a
+graded unary-plus-pairwise program. The aim is to compose independently trained
+networks algebraically rather than by retraining. This paper validates the
+representation such a composition would depend on. We define a single
+cross-domain protocol with a fixed architecture, declared ablation axes and
+fold-paired statistics, and apply it to MNIST, Fashion-MNIST, BloodMNIST and
+DermaMNIST. One configuration transfers across all four without retuning; the
+discrete bottleneck costs essentially nothing in accuracy and about $0.008$
+macro AUC; and the groups, trained only to classify, converge on redundant
+codes. An inter-group mutual-information penalty roughly doubles the
+compositional gain at no accuracy cost, while degrading hypervector recovery,
+the property the composition mechanism itself requires.
+\end{abstract}
+
+\section{Project Description}
+\label{sec:intro}
+
+Vector symbolic architectures (VSAs), otherwise known as hyperdimensional computing (HDC), are a cognitive-algebraic framework for representing and manipulating symbol-like structures using algebraic operations (binding, bundling, permutation) on very high-dimensional vectors, or ``hypervectors''~\cite{kanerva2009hyperdimensional,kleyko2022survey}.
+
+Zhang, Jiang, and Quan~\cite{zhang2025formalisms} have recently argued that the choice between knowledge representation methodologies, a longstanding debate in AI and AGI, does not actually buy anything in expressive power: much the contrary, all ``universal'' knowledge representation formalisms are recursively isomorphic to one another, so that for any knowledge operator in one formalism (e.g., gradient descent) there exists an operationally equivalent operator in another. Thus, hyperdimensional computing has experienced a recent resurgence as a potential bridge between connectionist and symbolic AI (an approach known as neurosymbolic AI), due to the shortcomings of each alone. Results have been mostly positive, with neural networks supported by hypervectors demonstrating greater systematic and compositional reasoning capabilities not typically observed in purely neural systems. Hersche et al.'s~\cite{hersche2023nvsa} neuro-vector-symbolic architecture, for instance, used hypervectors as a shared representational code between neural and symbolic components to set a new accuracy record on Raven's Progressive Matrice.
+
+Optimism aside, the integration between the inherently procedural, continuous connectionism and the declarative, discrete symbolism has been notoriously difficult, with the majority of proposed systems either demonstrating only superficial integration or collapsing into one paradigm. Some authors refer to this as the differentiability gap, and the problem spills over to Harnad's~\cite{harnad1990symbol} famous exposition of the symbol grounding problem. Furthermore, representing symbols as vectors in extremely high-dimensional spaces currently presents several practical implementation difficulties on standard, modern hardware.
+
+But the actual reason VSAs first appeared intriguing to AI has been largely underexplored. That is, their potential as a translator between specialized areas of the brain, or between separately-trained modules more generally. Recent work by Sutor et al.~\cite{sutor2022gluing} has explored integrating separately trained neural networks through a mechanism they call HD-Glue, which encodes each network's final-layer output signals as a hypervector; these per-network hypervectors are then bundled together into a single consensus hypervector that the fused networks jointly ``vote'' on to produce a prediction.
+
+We aim to take this further, and propose to investigate a new architecture that natively thinks in hypervectors; we will create hidden, cross-layer neuron aggregations, which will be projected to hypervectors. Backpropagation will be used to train the network's hypervectors, and vice-versa. Then, after training, we will pool these hypervectors, bind them into a common network hypervector, and eventually connect two independently trained models using an algebraic glue mechanism of our own. With this, we aim a twofold contribution: a proposed native neurosymbolic architecture in the Fodor and Pylyshyn~\cite{fodor1988connectionism} sense, and a way forward to compose such architectures as an alternative to pure, uniform scaling.
+
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.92\textwidth]{figs/architecture.pdf}
+\caption{\texttt{SparseJointCore} pipeline: the input is projected onto sparse, overlapping \emph{groups}; each group is pooled and bound to a role vector, written back onto its shared units, and re-pooled; the resulting values are bound and bundled into a unary code, then unbound per group and quantized against each group's codebook ($G_0$--$G_3$); the quantized values are re-bound to their roles and bundled twice, once for the unary program and once for the pairwise program (connected-group products), forming the final [unary; pair] program.}
+\label{fig:method}
+\end{figure*}
+
+Figure~\ref{fig:method} summarises the core as implemented. The target
+application is the MOVi benchmark from Kubric~\cite{greff2022kubric}, synthetic
+video scenes with rigid-body physics, around which three specialists are
+defined: a vision specialist (CNN+GRU), a physics specialist (MLP+GRU with a
+code-dynamics model) and an outcome decoder. Composing two such specialists
+requires the Glue of Figure~\ref{fig:glue}, which decomposes the pairwise joint
+code distribution of connected groups into an ANOVA-style interaction term and
+solves, per connected component of the scaffold, for the permutation that best
+matches those terms between two networks, without paired labels.
+
+That composition step is not what this paper validates. Random, uncorrelated
+data yields a near-zero alignment objective by construction, so a meaningful
+Glue test needs real paired codes, which are not yet available. What we can
+establish now, and what Sections~\ref{sec:protocol} and~\ref{sec:results} do
+establish, is whether the representation the Glue would have to operate on is
+sound: whether the same core transfers across domains, what the discrete
+bottleneck costs, and whether the groups carry complementary information at all
+or merely duplicate each other. The last of these turns out to require an
+explicit intervention, and that intervention has a measurable price.
+
+\begin{figure}[t]
+\centering
+\begin{minipage}{0.4\linewidth}
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[every node/.style={circle, draw, minimum size=4.5mm, font=\tiny, inner sep=0pt}]
+\foreach \i/\ang in {0/90,1/45,2/0,3/135,4/180,5/225,6/270,7/315}{
+  \node (n\i) at (\ang:1.15) {\i};
+}
+\draw (n0)--(n1); \draw (n0)--(n3); \draw (n1)--(n2); \draw (n1)--(n4);
+\draw (n2)--(n5); \draw (n3)--(n4); \draw (n4)--(n5); \draw (n4)--(n6);
+\draw (n5)--(n7); \draw (n6)--(n7);
+\end{tikzpicture}%
+}
+\centerline{\scriptsize (a) scaffold graph ($G{=}8$)}
+\end{minipage}%
+\hfill
+\begin{minipage}{0.52\linewidth}
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[every node/.style={font=\scriptsize}]
+\tikzset{grp/.style={circle, draw, minimum size=4.5mm, inner sep=0pt}}
+\foreach \i in {0,...,3}{
+  \node[grp] (a\i) at (0,-\i*0.6) {\i};
+  \node[grp] (b\i) at (2.2,-\i*0.6) {\i};
+}
+\node[above=1mm of a0] {Network A};
+\node[above=1mm of b0] {Network B};
+\draw[-{Latex[length=1.5mm]}, dashed] (a0) -- (b2);
+\draw[-{Latex[length=1.5mm]}, dashed] (a1) -- (b0);
+\draw[-{Latex[length=1.5mm]}, dashed] (a2) -- (b1);
+\draw[-{Latex[length=1.5mm]}, dashed] (a3) -- (b3);
+\node at (1.1,-2.2) {\scriptsize permutation $\pi$};
+\end{tikzpicture}%
+}
+\centerline{\scriptsize (b) Glue concept}
+\end{minipage}
+\caption{(a) The scaffold graph actually used for $G=8$ groups (\texttt{make\_rigid\_scaffold}): an edge means the two groups share a physical unit in some layer, so pairwise messages and Glue alignment only ever cross these edges. (b) Glue concept: \texttt{fit\_sj\_glue} finds the per-component code permutation $\pi$ that aligns two independently trained networks' groups, using only the (unpaired) statistics of their connected-group code distributions.}
+\label{fig:glue}
+\end{figure}
+
+
+
+\input{methodology}
+
+\input{results}
+
+\section{Conclusion}
+
+We set out to validate the representation that a Glue mechanism would have to
+operate on, under a protocol strict enough that the answer means something. Four
+results follow. A single fixed configuration of the sparse-joint core transfers
+across natural and medical images without per-dataset retuning. The discrete
+bottleneck is nearly free in accuracy and costs about $0.008$ macro AUC,
+locating its price in graded confidence rather than in the decision itself. The
+encoder, not the core, was the dominant limitation in our earlier experiments.
+And the specialisation that composition depends on does not arise from
+supervised training alone: the redundancy penalty of
+Equation~\ref{eq:redundancy} roughly doubles the pair gain at $\lambda=0.25$ on
+both datasets at no accuracy cost, while degrading hypervector recovery, which
+is the very property a Glue needs.
+
+That last tension is the project's open problem and the immediate next step,
+alongside bringing the Glue estimation routine into the reproducible pipeline so
+that the composition claim itself can be measured rather than argued.
+
+
+\renewcommand\IEEEbibitemsep{0pt plus .3pt}
+\bibliographystyle{IEEEtran}
+\bibliography{bibtex}
+
+\end{document}

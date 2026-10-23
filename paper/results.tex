@@ -1,0 +1,188 @@
+% =====================================================================
+% Seção de resultados.
+%
+% As tabelas abaixo são GERADAS por report.py a partir dos JSON de
+% results/validation/. Não editar os .tex de tabela à mão: rode
+%     python validation.py --suite all
+%     python report.py
+% e copie results/validation/paper/*.tex e *.pdf para junto do artigo.
+%
+% Números no texto conferidos contra a execução de 2026-10-15,
+% commit d57f4d0, PyTorch 2.6.0+cu118, RTX 3060.
+% =====================================================================
+
+\section{Results}
+\label{sec:results}
+
+Before the individual findings, one property of the design bounds how all of
+them may be read. With five folds, the smallest two-sided $p$ a Wilcoxon
+signed-rank test can return is $0.062$; no comparison in this section can
+therefore reach the conventional $0.05$ threshold, whatever the size of the
+underlying effect. This is a property of the sample of folds, not of the
+effects, and it is why we report Cohen's $d$ and the number of folds that moved
+in each direction as the primary evidence, with $p$ included only for
+completeness.
+
+\subsection{Generality across datasets}
+
+Table~\ref{tab:generality} applies the identical core and protocol to four
+datasets: two natural-image benchmarks~\cite{lecun1998mnist,xiao2017fashion} and two medical ones
+drawn from MedMNIST~v2~\cite{yang2023medmnist}: BloodMNIST, from peripheral blood
+smears~\cite{acevedo2020blood}, and DermaMNIST, from dermatoscopic
+images~\cite{tschandl2018ham10000}.
+
+\input{table_generality}
+
+A single configuration, chosen once and never retuned per dataset, reaches
+$0.986$ accuracy on MNIST, $0.895$ on Fashion-MNIST and $0.937$ on BloodMNIST.
+The last of these sits about two points below the published ResNet-18 reference
+for the same data at the same resolution, which is a reasonable showing for an
+architecture that routes everything through eight discrete symbols on the way
+to its decision.
+
+DermaMNIST is the exception. Accuracy reaches $0.726$, close to the
+$0.735$ of the ResNet-18 reference, while balanced accuracy is $0.469$ and the
+pair gain is slightly \emph{negative} ($-0.010$). The dataset has an imbalance
+ratio of $58{:}1$, and the model is substantially predicting the majority class;
+accuracy alone would have reported this as a near-baseline success.
+Figure~\ref{fig:generality} shows the divergence directly. We keep this case
+because it is the reason the protocol reports balanced accuracy and pair gain
+alongside accuracy: an evaluation without them would have scored a collapsed
+model as a working one.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=0.99\linewidth]{fig_generality.pdf}
+\caption{Accuracy and balanced accuracy under the same core and protocol.
+Dashed lines mark the published ResNet-18 accuracy for the medical datasets.
+The gap between the two bars on DermaMNIST is majority-class collapse: the
+dataset is imbalanced $58{:}1$.}
+\label{fig:generality}
+\end{figure}
+
+\subsection{Encoder and bottleneck}
+
+Table~\ref{tab:encoder} separates two things that are easy to confuse: the
+quality of the features entering the core, and the price of the discrete
+bottleneck itself. The third variant per dataset removes the core entirely,
+keeping the same encoder and the same program dimensionality, so the difference
+isolates discretisation.
+
+\input{table_encoder}
+
+The encoder effect is large and consistent. Replacing the dense layer over
+flattened pixels with a small CNN moves Fashion-MNIST from $0.858$ to $0.895$
+($d=4.94$, 5/5 folds) and BloodMNIST from $0.860$ to $0.937$ ($d=10.68$, 5/5
+folds). This is worth stating plainly because an earlier version of these
+experiments used the dense encoder throughout and therefore understated the
+architecture: what looked like a limitation of the sparse VSA core was mostly a
+limitation of what we were feeding it.
+
+The bottleneck effect is smaller. Against the no-core
+control, \emph{accuracy is statistically indistinguishable}: the control is
+ahead by $0.004$ on Fashion-MNIST ($d=0.61$, 3/5 folds) and behind by $0.002$ on
+BloodMNIST ($d=-0.24$, 2/5 folds). Compressing the representation into eight
+groups of sixteen symbols costs essentially nothing in decision quality, in
+either direction, on either dataset.
+
+The cost appears instead in \emph{ranking}. Macro AUC favours the control
+consistently, by $0.008$ on both datasets, with large effect size and all five
+folds agreeing in each case ($d=9.05$ and $d=4.99$). The interpretation we
+offer is that discretisation preserves the decision boundary while discarding
+the graded confidence around it: an argmax over sixteen symbols per group cannot
+express the fine differences in certainty that a dense vector carries, and AUC
+is the metric that reads those differences. For a downstream use that
+needs calibrated scores this matters; for one that needs decisions, it does not.
+
+\subsection{Redundancy penalty}
+
+Trained only to classify, the groups converge on redundant codes: inter-group
+NMI sits at $0.54$ on Fashion-MNIST and $0.53$ on BloodMNIST, with pair gains of
+only $0.068$ and $0.053$. In that regime the pairwise half of the program adds
+little to the unary half. Table~\ref{tab:specialization} and Figure~\ref{fig:tradeoff}
+trace what the redundancy penalty of Equation~\ref{eq:redundancy} changes.
+
+\input{table_specialization}
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=0.99\linewidth]{fig_tradeoff.pdf}
+\caption{Effect of the redundancy penalty. The two datasets track each other
+closely in all three panels. Compositionality (left) rises sharply and then
+plateaus; redundancy (centre) falls monotonically; readability of the
+hypervector (right) degrades and does not recover at larger weights.}
+\label{fig:tradeoff}
+\end{figure}
+
+\textbf{Effect of the penalty.} At $\lambda=0.25$ the
+pair gain more than doubles on both datasets, from $0.068$ to $0.159$ on
+Fashion-MNIST ($d=7.87$, 5/5 folds) and from $0.053$ to $0.133$ on BloodMNIST
+($d=9.39$, 5/5 folds), while inter-group redundancy halves. Accuracy moves by
+$+0.002$ and $-0.003$ respectively, well inside the fold-to-fold spread. The two curves in
+Figure~\ref{fig:tradeoff} nearly coincide across a greyscale clothing dataset
+and an RGB microscopy dataset, which is the replication evidence available at
+this stage.
+
+\textbf{Larger weights.} The pair gain peaks at $\lambda=0.25$ on
+both datasets and then flattens or declines, even as redundancy keeps falling
+to $0.20$ and $0.18$ at $\lambda=1$. Pushing codes towards independence
+eventually removes the shared structure the objective was meant to create:
+perfectly independent groups have nothing to compose. The useful range of $\lambda$ is
+narrow and at the low end.
+
+\textbf{Effect on readability.} VSA recovery falls from $0.988$ to
+$0.872$ on Fashion-MNIST and from $0.991$ to $0.780$ on BloodMNIST at
+$\lambda=0.25$, and continues to degrade with larger weights. Code perplexity
+falls alongside it, from $6.07$ to $4.39$ and from $4.90$ to $3.66$, which is
+consistent with independence being bought by relaxing the separation between
+codebook entries, since cleanup (Equation~\ref{eq:cleanup}) is a cosine
+lookup against those same entries.
+
+The severity of this cost is sensitive to the training budget, and we report
+this because an earlier run misled us. Under a shorter schedule and the dense
+encoder, recovery collapsed to roughly $0.65$ at every non-zero weight, which
+suggested a hard discontinuity. With the CNN encoder and four times the
+optimisation steps, unpenalised recovery rises to $0.99$ and the penalised
+value at $\lambda=0.25$ retains $0.87$ on Fashion-MNIST. The conflict between
+independence and readability is real and reproducible, but it is a graded
+trade-off, not the cliff the earlier evidence implied.
+
+This distinction matters for the architecture's purpose. Composing two
+independently trained networks requires reading codes back out of a
+superposition; a program that classifies well but decodes poorly is of limited
+use for that. At $\lambda=0.25$ the construction buys a doubled pair gain for
+roughly twelve points of recovery on Fashion-MNIST and twenty-one on
+BloodMNIST, and whether that is a good trade cannot be settled until the
+composition step itself is measured.
+
+\subsection{Statistical summary}
+
+Table~\ref{tab:stats} collects the fold-paired comparisons behind the claims
+above. Every configuration of a dataset shares its fold partitions, so the
+differences are paired by construction.
+
+\input{table_stats}
+
+\subsection{Limitations}
+
+Four limitations bound what the above establishes.
+
+The composition mechanism itself is untested. The routine that \emph{applies} a
+Glue, translating codes between algebras, merging with target-private symbols
+and composing programs, is implemented and structurally validated,
+but the routine that \emph{estimates} the alignment from data is not yet part of
+the reproducible pipeline. Every result here therefore concerns a single
+network, and the central claim of the project remains open.
+
+The evaluation is confined to $28\times28$ images and to one core
+configuration. The generality claim is about domains, not scale: nothing here
+shows the construction survives at higher resolution, with more groups, or on
+non-visual input.
+
+Five folds give little statistical power, as noted at the outset. The effects we
+rely on are large ($d > 4$ throughout), but the design cannot distinguish a
+small real effect from none.
+
+Finally, $\lambda$ was held fixed throughout training. A schedule that anneals
+it, or an explicit codebook-separation term, might recover the lost readability;
+both are untested and are the natural next experiments.
