@@ -1,23 +1,74 @@
-# Bateria de testes — branch `testes-kfold`
+# Teste e validação
 
-Branch criada a partir da `ver-real` só para testar a arquitetura nova
-(`SparseJointCore` / `FactorSJ`), sem alterar o design. O `base.py` não foi
-modificado, exceto por uma correção de sintaxe (import duplicado de
-`__future__`) que impedia o arquivo de compilar.
-
-## Como rodar
+## Protocolo unificado (use este)
 
 ```bash
 pip install medmnist            # além do requirements.txt
 
-python kfold_medmnist_test.py --encoder cnn                     # melhor configuração
-python kfold_medmnist_test.py --encoder linear                  # densa do FactorSJ
-python kfold_medmnist_test.py --encoder cnn --redundancy-weight 0.25
-python kfold_medmnist_test.py --dataset dermamnist --encoder cnn
-python test_sj_invariants.py                                    # contrato do módulo reconstruído
+python validation.py --suite smoke           # checagem rápida (~1 min)
+python validation.py --suite generality      # o mesmo core em 4 domínios
+python validation.py --suite encoder         # densa vs CNN vs sem core
+python validation.py --suite specialization  # varredura da penalidade
+python validation.py --suite all             # tudo (~2 h em RTX 3060)
+
+python report.py                             # tabelas LaTeX + figuras do artigo
+python test_sj_invariants.py                 # contrato do sj_invariants
 ```
 
-Cada run salva em `results/kfold/<nome>/`: `report.txt`, `metrics.json`,
+Resultados em `results/validation/<config>.json`, um arquivo por configuração,
+com métricas por fold, agregado, descrição do dataset e **proveniência**
+(commit, se a árvore estava suja, versão do torch, GPU, timestamp). As tabelas
+e figuras do artigo saem daí via `report.py`, em `results/validation/paper/` —
+nenhum número do artigo é transcrito à mão.
+
+### Por que o protocolo foi unificado
+
+Antes existiam três caminhos de teste incompatíveis:
+
+| caminho | dataset | validação | arquitetura |
+|---|---|---|---|
+| `sj_image_classifier.py` | MNIST / Fashion-MNIST | split único | `layers=2 units=32 hv_dim=64` |
+| `kfold_medmnist_test.py` | MedMNIST | 5-fold | `layers=3 units=128 hv_dim=256` |
+| `test_sj_invariants.py` | sintético | — | outra config ainda |
+
+Ou seja: o ~96% do MNIST e o ~93% do BloodMNIST que circulavam **vieram de
+arquiteturas diferentes** e nunca foram comparáveis. Qualquer afirmação do tipo
+"o core é agnóstico ao domínio" baseada em comparar um com o outro era inválida.
+
+O `validation.py` fixa uma arquitetura de referência (`BASE_ARCH`) e só varia os
+eixos declarados como ablação: **encoder** (densa / CNN), **core**
+(sparse-joint / sem core, como controle) e **λ** (peso da penalidade de
+redundância). Além disso:
+
+- as partições de fold vêm de semente fixa e são **as mesmas para toda
+  configuração do mesmo dataset**, o que torna as comparações pareadas por fold;
+- a padronização é ajustada só no fold de treino;
+- todos os datasets são subamostrados de forma estratificada para o mesmo teto
+  (17 mil), senão o MNIST (70k) receberia 4× o orçamento de treino do
+  BloodMNIST (17k);
+- comparações saem com diferença pareada, Cohen's *d* e Wilcoxon — com 5 folds
+  o teste tem pouco poder, então a leitura principal é o tamanho de efeito.
+
+### Controle sem o core
+
+O `--core none` troca o gargalo VSA por uma densa de mesma dimensão de saída,
+mantendo encoder e cabeça. É o que isola **o custo da discretização** do custo
+do encoder — duas coisas que estavam sendo confundidas.
+
+## Scripts anteriores (mantidos, mas superados)
+
+`kfold_medmnist_test.py` continua funcionando e é de onde o `validation.py`
+importa as métricas já validadas. `sj_image_classifier.py` e os dois testes de
+MNIST/Fashion-MNIST idem. Para resultados que vão ao artigo, use o
+`validation.py`: os outros usam configurações próprias e não são comparáveis
+entre si.
+
+```bash
+python kfold_medmnist_test.py --encoder cnn --redundancy-weight 0.25
+python image_classification_test.py
+```
+
+Cada run deles salva em `results/kfold/<nome>/`: `report.txt`, `metrics.json`,
 `confusion_matrix.png`, `sample_predictions.png` e `per_fold_metrics.png`.
 
 ## O que a bateria mede

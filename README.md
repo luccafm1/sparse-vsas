@@ -9,7 +9,7 @@ A ideia central: em vez de um embedding denso e monolítico, cada rede codifica 
 | Arquivo | Conteúdo | estado |
 |---|---|---|
 | [base.py](base.py) | Arquitetura base: `SJConfig`, *scaffold* esparso, o core `SparseJointCore` e o modelo `FactorSJ` com treino e diagnósticos | ok |
-| [glue.py](glue.py) | `SJGlue`, `fit_sj_glue` e `certify_sj_glue` | **não importa** |
+| [glue.py](glue.py) | `SJGlue` (traduz, mescla e compõe programas entre álgebras) + `fit_sj_glue` / `certify_sj_glue` | implementado, mas **não importa** |
 | [sj_invariants.py](sj_invariants.py) | `code_probabilities` e `full_path_locality` | reconstrução temporária |
 | [kfold_medmnist_test.py](kfold_medmnist_test.py) | Bateria k-fold em imagens médicas (MedMNIST) — ver [TESTES.md](TESTES.md) | ok |
 | [plots.py](plots.py) | Matriz de confusão, predições de exemplo, métricas por fold, curva do trade-off | ok |
@@ -31,7 +31,13 @@ a ser por grupo e os campos de vídeo/MOVi saíram do `SJConfig`). Três consequ
    `state_embed`, todos removidos do `SJConfig`. Reativá-los é decisão de design:
    ou esses campos voltam, ou o pipeline MOVi é reescrito sobre o `FactorSJ`.
 2. **`glue.py` não importa**, porque falta `sj_federated_networks_operator_v9.py`,
-   que não foi commitado. É lá que está o algoritmo do Glue inteiro.
+   que não foi commitado. Vale distinguir duas etapas: *aplicar* o Glue já está
+   pronto aqui — o `SJGlue` valida o certificado (mapa de grupos injetivo, mapas
+   de filler como permutações), traduz códigos entre álgebras, mescla com os
+   átomos privados do alvo e compõe programas. O que falta é *estimar* o
+   alinhamento: `fit_operator_sj_glue` e o tipo `OperatorGlueResult`, que vivem
+   no módulo ausente. Quando ele chegar, não deve haver implementação pendente
+   do lado do `glue.py`.
 3. **`sj_invariants.py` é reconstrução**, feita a partir dos pontos de uso. O
    caminho de treino não passa por ele; só diagnósticos e as features do Glue.
    Ao receber o original, apague o atual e rode `python test_sj_invariants.py`.

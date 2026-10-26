@@ -1,0 +1,23 @@
+% Harness para conferir que methodology.tex e results.tex compilam.
+% Copie as tabelas e figuras geradas para esta pasta antes:
+%     python validation.py --suite all && python report.py
+%     cp results/validation/paper/* paper/
+% Depois: pdflatex standalone.tex
+% NAO e o artigo: o artigo real esta no template do IEEE.
+
+\documentclass[conference]{IEEEtran}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[english]{babel}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning}
+\usepackage{enumitem}
+\begin{document}
+\title{Validation sections --- compile check}\author{}\maketitle
+\label{fig:method}\label{fig:glue}
+\input{methodology}
+\input{results}
+\end{document}
