@@ -136,7 +136,9 @@ posterior of group $g$ on a batch, and $\hat{p}_{ij}$ for the empirical joint,
   \label{eq:redundancy}
 \end{equation}
 added to the task loss with weight $\lambda$. Minimising it pushes the groups
-towards statistically independent codes. The full objective is
+towards statistically independent codes, and $\lambda$ sets how much of that
+independence is bought at the expense of the task: at $\lambda=0$ the penalty is
+absent and the objective is the original one. The full objective is
 $\mathcal{L} = \mathcal{L}_{\text{task}} + \mathcal{L}_{\text{VQ}}
 + \mathcal{L}_{\text{support}} + \lambda \mathcal{L}_{\text{red}}$.
 
