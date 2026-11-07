@@ -88,7 +88,7 @@ ganho do par de grupos conectados vs o melhor grupo sozinho, fillers usados por
 grupo, perplexidade do código e recuperação VSA (bundle → unbind → cleanup). As
 três primeiras seguem as definições validadas na branch `add-tests-and-docs`.
 
-**Encoder.** O `FactorSJ` monta o próprio encoder como uma única densa
+**Encoder.** O `SparseJointNetwork` monta o próprio encoder como uma única densa
 (`Linear(input_dim → frame_embed)`) e o `train()` recebe vetor achatado. A flag
 `--encoder cnn` substitui `model.encoder` por uma CNN pequena que remonta a
 imagem internamente — o `forward` faz `self.sj(self.encoder(x))`, então basta

@@ -47,7 +47,7 @@ datasets.py: carregador unificado. load_dataset(name, sample_cap, seed) une os
 --------------------------------------------------------------------------------
 base.py: arquitetura base. SJConfig (hiperparametros), make_rigid_scaffold /
   permute_scaffold (grafo esparso de grupos e unidades), SparseJointCore
-  (propagacao por camadas, bind com papeis, mensagens unarias e de par,
+  (papeis e fillers em FHRR; propagacao por camadas, bind com papeis, mensagens unarias e de par,
   quantizacao por codebook, programa final), SparseJointNetwork /
   build_model (encoder + core + cabeca), rotinas de treino, encode e
   vsa_cleanup_accuracy.
@@ -56,10 +56,12 @@ sj_invariants.py: funcoes auxiliares code_probabilities e full_path_locality,
   usadas nos diagnosticos e nas features do Glue.
 
 glue.py: mecanismo de composicao. SJGlue (traduz, mescla e compoe programas
-  entre as algebras de duas redes), fit_sj_glue (estima o alinhamento de
-  grupos e de valores a partir das estatisticas dos codigos, sem pares
-  rotulados) e certify_sj_glue (valida o certificado: mapa de grupos injetivo
-  e mapas de filler como permutacoes).
+  entre as algebras de duas redes), fit_sj_glue / fit_operator_sj_glue
+  (estimam o alinhamento de grupos e de valores por operadores de acao, ou
+  seja, a partir de como os codigos de cada rede reagem as mesmas
+  transformacoes da entrada, sem pares rotulados) e certify_sj_glue (valida
+  o certificado: mapa de grupos injetivo e mapas de filler como
+  permutacoes).
 
 plots.py: figuras da bateria k-fold - matriz de confusao, grade de predicoes
   de exemplo, metricas por fold e curva de trade-off da penalidade de

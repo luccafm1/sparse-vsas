@@ -8,10 +8,17 @@ A ideia central: em vez de um embedding denso e monolítico, cada rede codifica 
 
 | Arquivo | Conteúdo | estado |
 |---|---|---|
-| [base.py](base.py) | Arquitetura base: `SJConfig`, *scaffold* esparso, o core `SparseJointCore` e o modelo `FactorSJ` com treino e diagnósticos | ok |
-| [glue.py](glue.py) | `SJGlue` (traduz, mescla e compõe programas entre álgebras) + `fit_sj_glue` / `certify_sj_glue` | implementado, mas **não importa** |
+| [readme.txt](readme.txt) | Descrição de todos os artefatos entregues, com diretórios e parâmetros de execução | — |
+| [base.py](base.py) | Arquitetura base: `SJConfig`, *scaffold* esparso, o core `SparseJointCore` (FHRR) e o modelo `SparseJointNetwork` (`SJClassifier` / `SJRegressor`, via `build_model`) com treino e diagnósticos | ok |
+| [glue.py](glue.py) | `SJGlue` (traduz, mescla e compõe programas entre álgebras) + `fit_sj_glue` / `fit_operator_sj_glue` / `certify_sj_glue` | ok |
 | [sj_invariants.py](sj_invariants.py) | `code_probabilities` e `full_path_locality` | reconstrução temporária |
+| [datasets.py](datasets.py) | Carregador unificado (MNIST, Fashion-MNIST, MedMNIST) com subamostragem estratificada | ok |
+| [validation.py](validation.py) | **Protocolo unificado de validação** usado no artigo — saídas em `results/validation/` | ok |
+| [report.py](report.py) | Gera as tabelas LaTeX e figuras do artigo a partir de `results/validation/` | ok |
 | [kfold_medmnist_test.py](kfold_medmnist_test.py) | Bateria k-fold em imagens médicas (MedMNIST) — ver [TESTES.md](TESTES.md) | ok |
+| [glue_transfer_test.py](glue_transfer_test.py) | Transferência de códigos entre duas redes independentes, sem e com Glue — saídas em `results/glue/` | ok |
+| [kfold_glue_test.py](kfold_glue_test.py) | Versão k-fold do teste de transferência via Glue — saídas em `results/kfold_glue/` | ok |
+| [make_samples_figure.py](make_samples_figure.py) | Figura de amostras dos quatro datasets do artigo | ok |
 | [plots.py](plots.py) | Matriz de confusão, predições de exemplo, métricas por fold, curva do trade-off | ok |
 | [test_sj_invariants.py](test_sj_invariants.py) | 15 checks de contrato do `sj_invariants` | ok |
 | [sj_image_classifier.py](sj_image_classifier.py) | Modelo/treino/relatórios dos testes de classificação (MNIST e FashionMNIST) | ok |
@@ -20,24 +27,27 @@ A ideia central: em vez de um embedding denso e monolítico, cada rede codifica 
 | [composed_nets.py](composed_nets.py) | Redes especialistas (visão, física, decodificador) e utilitários de checkpoint | **API antiga** |
 | [smoke_test.py](smoke_test.py) | Sanity check dos checkpoints MOVi | **API antiga** |
 | `movi_*_sj_seed11.pkl` | Checkpoints treinados dos três especialistas | — |
+| `results/kfold/` | Resultados k-fold no BloodMNIST (linear, CNN, CNN + penalidade 0,25) — ver [TESTES.md](TESTES.md) | — |
+| [paper/](paper/) | Artigo (LaTeX), bibliografia e figuras auxiliares | — |
+| [TESTES.md](TESTES.md) / [RESULTADOS_GLUE.md](RESULTADOS_GLUE.md) | Protocolo de teste e resultados; resultados do Glue | — |
 
-### Pendências após a unificação das branches
+### Notas sobre a unificação das branches
 
 O `base.py` foi reescrito (`SparseVQCore` virou `SparseJointCore`, o alfabeto passou
-a ser por grupo e os campos de vídeo/MOVi saíram do `SJConfig`). Três consequências:
+a ser por grupo, a codificação migrou de Hadamard para FHRR e os campos de
+vídeo/MOVi saíram do `SJConfig`). Consequências:
 
-1. **`composed_nets.py` e `smoke_test.py` não rodam.** Eles dependem de
-   `video_frames_obs`, `video_size`, `max_objects`, `state_dim`, `dyn_dim` e
-   `state_embed`, todos removidos do `SJConfig`. Reativá-los é decisão de design:
-   ou esses campos voltam, ou o pipeline MOVi é reescrito sobre o `FactorSJ`.
-2. **`glue.py` não importa**, porque falta `sj_federated_networks_operator_v9.py`,
-   que não foi commitado. Vale distinguir duas etapas: *aplicar* o Glue já está
-   pronto aqui — o `SJGlue` valida o certificado (mapa de grupos injetivo, mapas
-   de filler como permutações), traduz códigos entre álgebras, mescla com os
-   átomos privados do alvo e compõe programas. O que falta é *estimar* o
-   alinhamento: `fit_operator_sj_glue` e o tipo `OperatorGlueResult`, que vivem
-   no módulo ausente. Quando ele chegar, não deve haver implementação pendente
-   do lado do `glue.py`.
+1. **`composed_nets.py` e `smoke_test.py` pertencem à fase MOVi** e usam a API
+   anterior. Eles dependem de `video_frames_obs`, `video_size`, `max_objects`,
+   `state_dim`, `dyn_dim` e `state_embed`, removidos do `SJConfig`. Reativá-los
+   é decisão de design: ou esses campos voltam, ou o pipeline MOVi é reescrito
+   sobre o `SparseJointNetwork`.
+2. **`glue.py` está completo.** *Aplicar* o Glue: o `SJGlue` valida o certificado
+   (mapa de grupos injetivo, mapas de filler como permutações), traduz códigos
+   entre álgebras, mescla com os átomos privados do alvo e compõe programas.
+   *Estimar* o alinhamento: `fit_operator_sj_glue` / `OperatorGlueResult`, por
+   operadores de ação (ver [Glue](#glue-composição-de-redes-independentes)).
+   Os testes que o exercitam são `glue_transfer_test.py` e `kfold_glue_test.py`.
 3. **`sj_invariants.py` é reconstrução**, feita a partir dos pontos de uso. O
    caminho de treino não passa por ele; só diagnósticos e as features do Glue.
    Ao receber o original, apague o atual e rode `python test_sj_invariants.py`.
@@ -54,7 +64,7 @@ Módulo central (`base.py`). Para cada entrada:
 
 1. Projeta a entrada em unidades e propaga por camadas (transições MLP).
 2. Cada grupo lê apenas suas unidades físicas, produzindo um valor por grupo.
-3. Faz **bind** (multiplicação elemento a elemento) do valor com um vetor de papel (`role`) fixo por grupo — semântica clássica de VSA.
+3. Faz **bind** (multiplicação elemento a elemento) do valor com um vetor de papel (`role`) fixo por grupo — semântica clássica de VSA. Na implementação atual, papéis e fillers são fasores FHRR (*Fourier Holographic Reduced Representation*).
 4. Propaga mensagens unárias (por grupo) e de par (entre grupos conectados) de volta às unidades compartilhadas.
 5. Quantiza cada grupo contra um *codebook* aprendido (estilo VQ-VAE, com straight-through estimator), produzindo códigos discretos por grupo.
 6. Agrega tudo em um **program**: bundle dos vetores unários concatenado ao bundle dos vetores de par — a representação final da cena, ao mesmo tempo discreta (códigos) e graduada (vetor contínuo).
@@ -67,7 +77,9 @@ Módulo central (`base.py`). Para cada entrada:
 
 ### Glue: composição de redes independentes
 
-`fit_sj_glue` recebe códigos discretos de duas redes com o mesmo *scaffold* (a menos de permutação):
+**Implementação atual ([glue.py](glue.py)).** O alinhamento é estimado por *operadores de ação*: `fit_sj_glue` / `fit_operator_sj_glue` não veem pares rotulados, só como os códigos de cada rede reagem às mesmas transformações da entrada (rotação, espelhamento, inversão, deslocamento etc.). Cada ação vira um operador sobre os códigos (`estimate_operators`); o casamento de grupos e as permutações de fillers são os que alinham os operadores das duas redes, com margem por bootstrap e testes contra permutações nulas. O resultado é um `SJGlue` certificado (`certify_sj_glue`), que traduz códigos e programas de uma rede para o espaço da outra (`import_program`, `apply_glue_codes`). Os experimentos estão em [glue_transfer_test.py](glue_transfer_test.py), [kfold_glue_test.py](kfold_glue_test.py) e [RESULTADOS_GLUE.md](RESULTADOS_GLUE.md).
+
+**Formulação original ([composed_nets.py](composed_nets.py), fase MOVi).** `fit_sj_glue` recebe códigos discretos de duas redes com o mesmo *scaffold* (a menos de permutação):
 
 1. Verifica compatibilidade estrutural via `structural_isomorphisms`.
 2. Para cada par de grupos conectados no grafo, estima as distribuições conjuntas empíricas dos códigos e extrai a **componente pura de interação** (decomposição tipo ANOVA sobre o log da distribuição conjunta).
@@ -90,7 +102,24 @@ decoder = load_checkpoint("movi_decoder_sj_seed11.pkl")
 
 ## Como testar
 
-O repositório não vem com dados reais nem script de treino — só os checkpoints. Para verificar que tudo está funcionando (dependências instaladas, checkpoints carregam, forward pass roda, Glue funciona), rode o smoke test com dados aleatórios:
+### Protocolo unificado (resultados do artigo)
+
+Os resultados do artigo vêm de um único protocolo de treino e validação, com arquitetura fixa e k-fold estratificado. Os datasets (MNIST, Fashion-MNIST, BloodMNIST, DermaMNIST) são baixados automaticamente para `data/`.
+
+```bash
+pip install -r requirements.txt
+pip install medmnist
+
+python validation.py --suite smoke   # checagem rápida
+python validation.py --suite all     # generality + encoder + specialization
+python report.py                     # tabelas LaTeX e figuras do artigo
+```
+
+Resultados em `results/validation/<config>.json`; tabelas e figuras em `results/validation/paper/`. Detalhes do protocolo, das suítes e das métricas em [TESTES.md](TESTES.md); lista completa de artefatos e parâmetros em [readme.txt](readme.txt).
+
+### Smoke test dos checkpoints MOVi (fase inicial)
+
+Os checkpoints `movi_*_sj_seed11.pkl` são da fase MOVi e usam a API anterior do núcleo (ver [Notas](#notas-sobre-a-unificação-das-branches)). Com essa API, o smoke test com dados aleatórios verifica que os checkpoints carregam, o forward pass roda e o Glue funciona:
 
 ```bash
 python smoke_test.py
@@ -108,7 +137,9 @@ OK: all checkpoints loaded and ran successfully.
 
 Como os dados são aleatórios (sem correlação real entre grupos), o `objective`/`margin` do Glue tendem a ficar perto de zero — isso é esperado e só significa que não há estrutura estatística real para alinhar. Para um teste de Glue significativo, é preciso gerar códigos a partir de dados reais do MOVi (mesmas cenas passadas pelos dois modelos), não deste script de sanity check.
 
-### Teste de classificação real (MNIST e FashionMNIST)
+### Teste de classificação real (MNIST e FashionMNIST, fase inicial)
+
+> Estes testes usam uma configuração própria (`layers=2 units=32 hv_dim=64`, split único) e precedem o protocolo unificado; para números comparáveis entre datasets, use o `validation.py` (ver [TESTES.md](TESTES.md)).
 
 `SparseJointCore` (o núcleo em [base.py](base.py)) não depende de vídeo nem de física — ele só recebe um vetor de embedding qualquer. [sj_image_classifier.py](sj_image_classifier.py) prova isso construindo um classificador de imagens do zero (CNN pequena → `SparseJointCore` → cabeça linear), sem reaproveitar nenhuma peça de [composed_nets.py](composed_nets.py). Dois scripts finos rodam esse mesmo modelo em datasets diferentes:
 
@@ -149,11 +180,14 @@ Ou seja: nenhum grupo sozinho fica confiante sobre a classe, mas pares de grupos
 ## Requisitos
 
 - Python 3.10+ (usa `X | Y` em type hints e `from __future__ import annotations`)
-- `torch`
-- `numpy`
+- `torch`, `torchvision`
+- `numpy`, `scipy`, `scikit-learn`
+- `matplotlib`
+- `medmnist` (datasets médicos do protocolo de validação)
 
-Instalar tudo com um comando:
+Instalar tudo:
 
 ```bash
 pip install -r requirements.txt
+pip install medmnist
 ```
