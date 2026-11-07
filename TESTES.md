@@ -210,8 +210,10 @@ Classificação supervisionada não tem pares de intervenção, então sobram
   diagnósticos e as features de programa do Glue dependem. Quando o arquivo
   original chegar: apague o meu e rode `python test_sj_invariants.py` contra o
   dele; os 15 checks de contrato dizem se a semântica bate.
-- **`sj_federated_networks_operator_v9.py` continua faltando**, então o
-  `glue.py` não importa e nada de Glue foi testado.
+- O Glue (`fit_operator_sj_glue` / `SJGlue`) agora está completo no
+  `glue.py` e é testado à parte, por `glue_transfer_test.py` e
+  `kfold_glue_test.py` (ver [RESULTADOS_GLUE.md](RESULTADOS_GLUE.md)); esta
+  bateria mede uma rede sozinha e não passa pelo Glue.
 - `composed_nets.py` ainda usa a API antiga (`SparseVQCore`, `cfg.state_embed`).
 - A métrica de localidade do scaffold existe atrás de `--locality`, mas depende
   da definição de `full_path_locality` — confirmar contra o original antes de
